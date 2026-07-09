@@ -4,7 +4,7 @@ anyio==4.14.1
 fastapi==0.139.0
 greenlet==3.5.3
 idna==3.18
-psycopg2==2.9.12
+psycopg2-binary==2.9.12
 pydantic==2.13.4
 pydantic_core==2.46.4
 python-dotenv==1.2.2
