@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from typing import Any, Dict
 
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
 from app.core.security import verify_request
 from app.managers.command_manager import command_manager
 from app.schemas.station_command import StationCommand, MultiStationCommand
@@ -15,8 +18,9 @@ async def single_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
-    if not verify_request(command.model_dump(), timestamp, nonce, signature):
+    if not verify_request(command.model_dump(), timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     response = await command_manager.execute_command(station_id, command)
@@ -30,9 +34,10 @@ async def multiple_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
 
-    if not verify_request(command.model_dump(), timestamp, nonce, signature):
+    if not verify_request(command.model_dump(), timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     response = await command_manager.execute_many(command.stations, command)
@@ -46,9 +51,10 @@ async def all_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
 
-    if not verify_request(command.model_dump(), timestamp, nonce, signature):
+    if not verify_request(command.model_dump(), timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     response = await command_manager.execute_all(command)
@@ -62,13 +68,14 @@ async def add_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
     """Add a new station to the system."""
-    if not verify_request(data, timestamp, nonce, signature):
+    if not verify_request(data, timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     response = await command_manager.add_station(
-        data["name"], float(data["latitude"]), float(data["longitude"])
+        data["name"], float(data["latitude"]), float(data["longitude"]), db
     )
 
     return response
@@ -80,14 +87,15 @@ async def remove_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
     """Remove a station from the system."""
     if not verify_request(
-        data, timestamp, nonce, signature
+        data, timestamp, nonce, signature, db
     ):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    response = await command_manager.remove_station(data["station_id"])
+    response = await command_manager.remove_station(data["station_id"], db)
     return response
 
 
@@ -97,9 +105,10 @@ async def modify_station(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
     """Modify a station's details in the system."""
-    if not verify_request(data, timestamp, nonce, signature):
+    if not verify_request(data, timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     response = await command_manager.modify_station(
@@ -111,6 +120,7 @@ async def modify_station(
         longitude=(
             float(data.get("longitude")) if data.get("longitude") is not None else None
         ),
+        db=db
     )
     return response
 
@@ -121,10 +131,11 @@ async def list_stations(
     timestamp: str = Header(alias="AS-Timestamp"),
     nonce: str = Header(alias="AS-Nonce"),
     signature: str = Header(alias="AS-Signature"),
+    db: Session = Depends(get_db)
 ):
     """List all stations in the system. This is a placeholder endpoint and should be implemented with proper logic."""
-    if not verify_request(data, timestamp, nonce, signature):
+    if not verify_request(data, timestamp, nonce, signature, db):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    response = await command_manager.get_station(data["station_id"])
+    response = await command_manager.get_station(data["station_id"], db)
     return response

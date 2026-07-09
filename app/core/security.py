@@ -3,11 +3,13 @@ import hashlib
 import json
 from typing import Any, Dict
 
+from sqlalchemy.orm import Session
+
 from app.config import Config
 
 SECRET = Config.SECRET_KEY
 
-def verify_request(body: Dict[str, Any], timestamp: str, nonce: str, signature: str) -> bool:
+def verify_request(body: Dict[str, Any], timestamp: str, nonce: str, signature: str, db: Session) -> bool:
     """Verify the request signature using HMAC-SHA256."""
 
     body_json = json.dumps(body, separators=(",", ":"), sort_keys=True)
@@ -20,6 +22,6 @@ def verify_request(body: Dict[str, Any], timestamp: str, nonce: str, signature: 
     return True
 
 
-def verify_auth_key(station_id: str, auth_key: str) -> bool:
+def verify_auth_key(station_id: str, auth_key: str, db: Session) -> bool:
     """Verify the provided auth key against the server's secret key."""
     return True
