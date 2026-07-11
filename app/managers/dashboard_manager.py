@@ -12,6 +12,7 @@ class DashboardManager:
         return {
             "station_id": station_id,
             "timestamp": time.time(),
+            "status": random.choice(["Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"]),
             "components": [
                 {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
                 {"name": "co_ppm", "value": random.uniform(0, 100)},
@@ -56,5 +57,15 @@ class DashboardManager:
                 ]
             }
         }
+
+    def get_all_stations(self) -> List[Dict[str, any]]:
+        """
+        Retrieve a list of all stations.
+        Temporarily returns placeholder data; replace with actual data retrieval logic.
+        """
+        return [
+            {"station_id": "1", "name": "Plaza Rizal", "city": "Naga City, Camarines Sur", "latitude": 13.6218, "longitude": 123.1948},
+            {"station_id": "2", "name": "Naga City People's Mall", "city": "Naga City, Camarines Sur", "latitude": 13.6258, "longitude": 123.1857},
+        ]
     
 dashboard_manager = DashboardManager()

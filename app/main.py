@@ -36,7 +36,7 @@ app.add_middleware(
 app.include_router(station_router, prefix="/stn", tags=["Stations"])
 
 # Server to frontend connection (for sending station data to frontend)
-app.include_router(dashboard_router, prefix="/read", tags=["Readings"])
+app.include_router(dashboard_router, prefix="/monitor", tags=["Monitoring"])
 
 # Admin to Server connection (for sending commands to stations, and receiving station data)
 app.include_router(command_router, prefix="/cmd", tags=["Commands"])
