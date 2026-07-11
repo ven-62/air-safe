@@ -7,6 +7,7 @@ class DashboardManager:
         """
         Retrieve pollutant data for a specific station.
         Temporarily returns placeholder data; replace with actual data retrieval logic.
+        /monitor/read/{station_id}
         """
 
         return {
@@ -27,6 +28,7 @@ class DashboardManager:
         """
         Retrieve forecast data for a specific station.
         Temporarily returns placeholder data; replace with actual data retrieval logic.
+        from monitor/forecast/{station_id}
         """
         return {
             "station_id": station_id,
@@ -46,7 +48,15 @@ class DashboardManager:
                     {"name": "temp_c", "value": round(random.uniform(-10, 40), 2)},
                     {"name": "humidity_pct", "value": round(random.uniform(0, 100), 2)},
                     {"name": "aqi", "value": round(random.uniform(0, 500), 2)},
-                ]
+                ],
+                "next_third_hour": [
+                    {"name": "pm25_ugm3", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "co_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "no2_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "temp_c", "value": round(random.uniform(-10, 40), 2)},
+                    {"name": "humidity_pct", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "aqi", "value": round(random.uniform(0, 500), 2)},
+                ],
             }
         }
 
@@ -54,6 +64,7 @@ class DashboardManager:
         """
         Retrieve a list of all stations.
         Temporarily returns placeholder data; replace with actual data retrieval logic.
+        from monitor/stations
         """
         return [
             {"station_id": "1", "name": "Plaza Rizal", "city": "Naga City, Camarines Sur", "latitude": 13.6218, "longitude": 123.1948},
