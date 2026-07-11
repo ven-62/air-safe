@@ -14,12 +14,12 @@ class DashboardManager:
             "timestamp": time.time(),
             "status": random.choice(["Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"]),
             "components": [
-                {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
-                {"name": "co_ppm", "value": random.uniform(0, 100)},
-                {"name": "no2_ppm", "value": random.uniform(0, 100)},
-                {"name": "temp_c", "value": random.uniform(-10, 40)},
-                {"name": "humidity_pct", "value": random.uniform(0, 100)},
-                {"name": "aqi", "value": random.uniform(0, 500)},
+                {"name": "pm25_ugm3", "value": round(random.uniform(0, 100), 2)},
+                {"name": "co_ppm", "value": round(random.uniform(0, 100), 2)},
+                {"name": "no2_ppm", "value": round(random.uniform(0, 100), 2)},
+                {"name": "temp_c", "value": round(random.uniform(-10, 40), 2)},
+                {"name": "humidity_pct", "value": round(random.uniform(0, 100), 2)},
+                {"name": "aqi", "value": round(random.uniform(0, 500), 2)},
             ],
         }
     
@@ -32,28 +32,20 @@ class DashboardManager:
             "station_id": station_id,
             "forecast": {
                 "next_first_hour": [
-                    {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
-                    {"name": "co_ppm", "value": random.uniform(0, 100)},
-                    {"name": "no2_ppm", "value": random.uniform(0, 100)},
-                    {"name": "temp_c", "value": random.uniform(-10, 40)},
-                    {"name": "humidity_pct", "value": random.uniform(0, 100)},
-                    {"name": "aqi", "value": random.uniform(0, 500)},
+                    {"name": "pm25_ugm3", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "co_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "no2_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "temp_c", "value": round(random.uniform(-10, 40), 2)},
+                    {"name": "humidity_pct", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "aqi", "value": round(random.uniform(0, 500), 2)},
                 ],
                 "next_second_hour": [
-                    {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
-                    {"name": "co_ppm", "value": random.uniform(0, 100)},
-                    {"name": "no2_ppm", "value": random.uniform(0, 100)},
-                    {"name": "temp_c", "value": random.uniform(-10, 40)},
-                    {"name": "humidity_pct", "value": random.uniform(0, 100)},
-                    {"name": "aqi", "value": random.uniform(0, 500)},
-                ],
-                "next_third_hour": [
-                    {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
-                    {"name": "co_ppm", "value": random.uniform(0, 100)},    
-                    {"name": "no2_ppm", "value": random.uniform(0, 100)},
-                    {"name": "temp_c", "value": random.uniform(-10, 40)},
-                    {"name": "humidity_pct", "value": random.uniform(0, 100)},
-                    {"name": "aqi", "value": random.uniform(0, 500)},
+                    {"name": "pm25_ugm3", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "co_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "no2_ppm", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "temp_c", "value": round(random.uniform(-10, 40), 2)},
+                    {"name": "humidity_pct", "value": round(random.uniform(0, 100), 2)},
+                    {"name": "aqi", "value": round(random.uniform(0, 500), 2)},
                 ]
             }
         }
