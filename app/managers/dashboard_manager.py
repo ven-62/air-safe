@@ -11,14 +11,24 @@ class DashboardManager:
 
         return {
             "station_id": station_id,
-            "pollutants": [
-                {"name": "pm25_ugm3", "value": random.uniform(0, 100), "last_updated": time.time()},
-                {"name": "co_ppm", "value": random.uniform(0, 100), "last_updated": time.time()},
-                {"name": "no2_ppm", "value": random.uniform(0, 100), "last_updated": time.time()},
-                {"name": "temp_c", "value": random.uniform(-10, 40), "last_updated": time.time()},
-                {"name": "humidity_pct", "value": random.uniform(0, 100), "last_updated": time.time()},
-                {"name": "aqi", "value": random.uniform(0, 500), "last_updated": time.time()},
+            "timestamp": time.time(),
+            "components": [
+                {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
+                {"name": "co_ppm", "value": random.uniform(0, 100)},
+                {"name": "no2_ppm", "value": random.uniform(0, 100)},
+                {"name": "temp_c", "value": random.uniform(-10, 40)},
+                {"name": "humidity_pct", "value": random.uniform(0, 100)},
+                {"name": "aqi", "value": random.uniform(0, 500)},
             ],
+        }
+    
+    async def get_forecast_data(self, station_id: str) -> Dict[str, any]:
+        """
+        Retrieve forecast data for a specific station.
+        Temporarily returns placeholder data; replace with actual data retrieval logic.
+        """
+        return {
+            "station_id": station_id,
             "forecast": {
                 "next_first_hour": [
                     {"name": "pm25_ugm3", "value": random.uniform(0, 100)},
@@ -46,5 +56,5 @@ class DashboardManager:
                 ]
             }
         }
-
+    
 dashboard_manager = DashboardManager()

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.station import Station
+from app.managers.station_manager import station_manager
 from app.schemas.station_command import StationCommand
 from app.schemas.station_command import MultiStationCommand
 
@@ -8,6 +9,14 @@ from app.schemas.station_command import MultiStationCommand
 class CommandManager:
 
     async def execute_command(self, station_id, command: StationCommand, db: Session):
+        """Execute a command for a single station."""
+        station = await station_manager.get_station(station_id, db)
+        if not station:
+            return {
+                "status": "error",
+                "message": f"Station with ID '{station_id}' does not exist.",
+            }
+        # Implement command execution logic for a single station
         pass
 
     async def execute_many(self, stations, command: MultiStationCommand, db: Session):
