@@ -4,19 +4,19 @@ from sqlalchemy.orm import Session
 
 from app.config import Config
 from app.schemas.station_command import StationCommand
-from app.core.predictor import AirQualityPredictor
-from app.core.gas_units import co_ppm_to_ugm3, no2_ppm_to_ugm3
-from app.models.sensor_readings import SensorReading
-from app.models.forecast_readings import ForecastReading
+# from app.core.predictor import AirQualityPredictor
+# from app.core.gas_units import co_ppm_to_ugm3, no2_ppm_to_ugm3
+# from app.models.sensor_readings import SensorReading
+# from app.models.forecast_readings import ForecastReading
 
 
 class StationManager:
 
-    def __init__(self):
-        self.predictor = AirQualityPredictor(
-            hf_repo_id=Config.HF_REPO_ID,
-            sensor_calibration_path="sensor_calibration.json",
-        )
+    # def __init__(self):
+    #     self.predictor = AirQualityPredictor(
+    #         hf_repo_id=Config.HF_REPO_ID,
+    #         sensor_calibration_path="sensor_calibration.json",
+    #     )
 
     async def process_station_data(self, station_id: str, data: dict, db: Session):
         """Process incoming data from stations: convert units, calibrate, predict, persist."""
