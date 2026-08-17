@@ -10,11 +10,17 @@ def seed_stations():
     try:
         stations = [
             {
-                "name": "Iriga City Station",
-                "city": "Iriga City",
-                "latitude": 13.4322,
-                "longitude": 123.4117,
+                "name": "Plaza Rizal", # Station 1
+                "city": "Naga City",
+                "latitude": 13.6218,
+                "longitude": 123.1948,
             },
+            {
+                "name": "Naga City People's Mall", # Station 2
+                "city": "Naga City",
+                "latitude": 13.6258,
+                "longitude": 123.1857
+            }
         ]
 
         for station_data in stations:
