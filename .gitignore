@@ -1,3 +1,5 @@
 .venv
 .env
 __pycache__
+app/core/saved_models/*
+!app/core/saved_models/model_config.json

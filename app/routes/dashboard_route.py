@@ -24,3 +24,11 @@ async def get_all_stations():
     stations = dashboard_manager.get_all_stations()
 
     return stations
+
+@router.get("/history/{station_id}")
+async def get_latest_history(station_id: str):
+    """Endpoint for retrieving history data for a specific station."""
+
+    history_data = await dashboard_manager.get_latest_history(station_id)
+
+    return history_data

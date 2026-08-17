@@ -13,3 +13,4 @@ class Config:
 
     # Security configuration
     SECRET_KEY = os.getenv("SECRET_KEY")
+    HF_REPO_ID = os.getenv("HF_REPO_ID")
