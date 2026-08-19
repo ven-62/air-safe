@@ -111,7 +111,7 @@ class AirQualityPredictor:
 
     def __init__(
         self,
-        model_dir="app/saved_models",
+        model_dir="app/core/saved_models",
         config_path=None,
         history_size=24,
         hf_repo_id=None,

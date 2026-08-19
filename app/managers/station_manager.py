@@ -46,15 +46,15 @@ class StationManager:
     def __init__(self):
 
         self.stn1_predictor = AirQualityPredictor(
-            hf_repo_id=Config.HF_REPO_ID,
-            hf_token=Config.HF_TOKEN,
-            sensor_calibration_path="calibration/1_quantile_mapping.json",
+            # hf_repo_id=Config.HF_REPO_ID,
+            # hf_token=Config.HF_TOKEN,
+            # sensor_calibration_path="calibration/1_quantile_mapping.json",
         )
 
         self.stn2_predictor = AirQualityPredictor(
-            hf_repo_id=Config.HF_REPO_ID,
-            hf_token=Config.HF_TOKEN,   
-            sensor_calibration_path="calibration/2_quantile_mapping.json",
+            # hf_repo_id=Config.HF_REPO_ID,
+            # hf_token=Config.HF_TOKEN,   
+            # sensor_calibration_path="calibration/2_quantile_mapping.json",
         )
 
     # GET PREDICTOR
