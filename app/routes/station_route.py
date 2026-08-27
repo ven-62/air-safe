@@ -1,201 +1,89 @@
-from fastapi import APIRouter, Header, HTTPException, Depends, Body
-
+from fastapi import APIRouter, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
 
-
 from app.core.database import get_db
-
 from app.managers.station_manager import station_manager
-
 from app.services.station_service import (
     now_local,
+    current_window,
     is_active_window,
+    prepare_response,
     active_response,
     sleep_response,
-    SAMPLE_INTERVAL_SECONDS,
 )
 
 router = APIRouter()
 
 
-# Station Boot / Check in
 @router.post("/{station_id}/check")
 def station_check(station_id: str):
-    """
-    Called by ESP32 after boot.
-
-    Server determines whether the station should:
-
-        1. Start reading
-        2. Go to deep sleep
-    """
-
     now = now_local()
-
     print(f"[CHECK] Station {station_id} at {now.isoformat()}")
 
-    # CHECK ACTIVE WINDOW
-    active, mode, window_start, window_end = is_active_window(now)
-
-    # OUTSIDE WINDOW
-    if not active:
-
+    # Final one-minute measurement window.
+    active, mode, reading_start, reading_end = is_active_window(now)
+    if active:
         print(
-            f"[CHECK] Station {station_id}: "
-            f"OUTSIDE WINDOW"
+            f"[CHECK] Station {station_id}: READ ({mode}) "
+            f"{reading_start} -> {reading_end}"
         )
+        return active_response(mode, reading_start, reading_end)
 
-        return sleep_response(
-            reason="outside_window"
+    # Three-minute preparation period before the final minute.
+    mode, prepare_start, reading_start, reading_end = current_window(now)
+    if mode is not None and prepare_start <= now < reading_start:
+        print(
+            f"[CHECK] Station {station_id}: PREPARE ({mode}) "
+            f"reading starts at {reading_start}"
         )
+        return prepare_response(mode, prepare_start, reading_start, reading_end)
 
-    # ACTIVE
-    print(
-        f"[CHECK] Station {station_id}: "
-        f"ACTIVE ({mode})"
-    )
+    print(f"[CHECK] Station {station_id}: SLEEP")
+    return sleep_response("outside_window")
 
-    return active_response(
-        mode=mode,
-        window_start=window_start,
-        window_end=window_end,
-    )
 
-# SENSOR 
 @router.post("/{station_id}/readings")
 async def receive_reading(
     station_id: str,
     data: dict = Body(...),
     db: Session = Depends(get_db),
 ):
-    """
-    Receive sensor data.
-
-    The server checks the active window before saving.
-
-    The final reading of the window is marked as `is_last=True`.
-
-    Only when `is_last=True` will the station manager round
-    the timestamp to the next hour.
-
-    Example:
-
-        08:58:50 -> normal timestamp
-        08:58:55 -> last reading -> 09:00:00
-    """
-
     now = now_local()
 
-    # CHECK ACTIVE WINDOW
-    active, mode, window_start, window_end = is_active_window(now)
-
-    # WINDOW ENDED
-    if not active:
-
-        print(
-            f"[READING] Station {station_id}: "
-            f"WINDOW ENDED"
-        )
-
-        return sleep_response(
-            reason="window_ended"
-        )
-
-    # VALIDATE DATA
     if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    required_fields = [
+        "pm2_5", "mq7_ppm", "mq135_ppm", "humidity", "temperature"
+    ]
+    missing = [field for field in required_fields if field not in data]
+    if missing:
         raise HTTPException(
             status_code=400,
-            detail="Invalid JSON body"
+            detail=f"Missing fields: {', '.join(missing)}",
         )
 
-    # DETERMINE LAST READING
-    remaining_seconds = (window_end - now).total_seconds()
-
-    # The reading is considered the final reading when
-    # there is no more than one sampling interval remaining.
-    #
-    # Example with SAMPLE_INTERVAL_SECONDS = 5:
-    #
-    # 08:58:50 -> 10 sec remaining -> False
-    # 08:58:55 ->  5 sec remaining -> True
-    # 08:58:58 ->  2 sec remaining -> True
-    #
-    # 08:59:00 -> window already inactive and was rejected above.
-
-    is_last = (
-        remaining_seconds <= SAMPLE_INTERVAL_SECONDS
-    )
-
-    # EXTRACT SENSOR DATA
-    pm2_5 = data.get("pm2_5")
-    mq7_ppm = data.get("mq7_ppm")
-    mq135_ppm = data.get("mq135_ppm")
-    humidity = data.get("humidity")
-    temperature = data.get("temperature")
-
-    # LOG
     print("=" * 60)
     print(f"Station       : {station_id}")
     print(f"Server Time   : {now}")
-    print(f"Mode          : {mode}")
-    print(f"Window Start  : {window_start}")
-    print(f"Window End    : {window_end}")
-    print(f"Remaining     : {remaining_seconds:.3f}s")
-    print(f"Is Last       : {is_last}")
-    print(f"PM2.5         : {pm2_5}")
-    print(f"CO (MQ7)      : {mq7_ppm}")
-    print(f"NO2 (MQ135)   : {mq135_ppm}")
-    print(f"Humidity      : {humidity}")
-    print(f"Temperature   : {temperature}")
+    print("AVERAGED      : True")
+    print(f"Sample Count  : {data.get('sample_count', 0)}")
+    print(f"PM2.5         : {data.get('pm2_5')}")
+    print(f"CO (MQ7)      : {data.get('mq7_ppm')}")
+    print(f"NO2 (MQ135)   : {data.get('mq135_ppm')}")
+    print(f"Humidity      : {data.get('humidity')}")
+    print(f"Temperature   : {data.get('temperature')}")
     print("=" * 60)
-
-    # PROCESS / SAVE
 
     await station_manager.process_station_data(
         station_id,
         data,
         db,
-        is_last=is_last,
-    )
-
-    # CHECK WINDOW AGAIN
-    now_after = now_local()
-
-    (
-        still_active,
-        current_mode,
-        current_window_start,
-        current_window_end,
-    ) = is_active_window(now_after)
-
-    # WINDOW ENDED WHILE PROCESSING
-    if not still_active:
-
-        print(
-            f"[READING] Station {station_id}: "
-            f"WINDOW ENDED AFTER PROCESSING"
-        )
-
-        return sleep_response(
-            reason="window_ended"
-        )
-
-    # CONTINUE
-    remaining = max(
-        0,
-        int(
-            (
-                current_window_end - now_after
-            ).total_seconds()
-        )
+        is_last=True,
     )
 
     return {
-        "status": "active",
-        "action": "continue",
-        "mode": current_mode,
-        "server_time": now_after.isoformat(),
-        "remaining_seconds": remaining,
-        "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        "status": "success",
+        "action": "sleep",
+        "message": "Averaged reading stored",
     }
-
