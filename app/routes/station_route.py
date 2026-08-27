@@ -82,8 +82,14 @@ async def receive_reading(
         is_last=True,
     )
 
+    # The reading has finished. Tell the ESP32 exactly how long
+    # to sleep until the NEXT preparation phase.
+    next_sleep = sleep_response("reading_complete")
+    print(f"[READINGS] Station {station_id}: SLEEP for {next_sleep['sleep_seconds']} seconds")
     return {
         "status": "success",
         "action": "sleep",
         "message": "Averaged reading stored",
+        "sleep_seconds": next_sleep["sleep_seconds"],
+        "next_prepare_start": next_sleep["next_prepare_start"],
     }
