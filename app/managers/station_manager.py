@@ -142,9 +142,17 @@ class StationManager:
             humidity_pct=humidity,
         )
 
+        print(
+            f"PM2.5: {pm2_5}, CO: {co_ugm3}, NO2: {no2_ugm3}, "
+            f"Temp: {temperature}, Humidity: {humidity}, "
+            f"Timestamp: {saved_timestamp}"
+        )
+
         db.add(sensor_reading)
         db.commit()
         db.refresh(sensor_reading)
+
+        return
 
         # At this point:
         #
@@ -153,99 +161,100 @@ class StationManager:
         # is available and can be used as the
         # source_reading_id for the predictions.
 
+        # =====================================================================
         # 6. GET STATION PREDICTOR
-        predictor = self.get_predictor(
-            station_id
-        )
+        # predictor = self.get_predictor(
+        #     station_id
+        # )
 
-        # 7. ADD DATABASE READING TO PREDICTOR
-        #
-        # IMPORTANT:
-        #
-        # We are NOT inserting another SensorReading.
-        #
-        # The SensorReading already exists in the database.
-        #
-        # The predictor takes that database object and
-        # internally performs the calibration/normalization.
-        #
-        # The calibrated values stay inside predictor history.
-        #
+        # # 7. ADD DATABASE READING TO PREDICTOR
+        # #
+        # # IMPORTANT:
+        # #
+        # # We are NOT inserting another SensorReading.
+        # #
+        # # The SensorReading already exists in the database.
+        # #
+        # # The predictor takes that database object and
+        # # internally performs the calibration/normalization.
+        # #
+        # # The calibrated values stay inside predictor history.
+        # #
 
-        predictor.add_db_reading(
-            sensor_reading
-        )
+        # predictor.add_db_reading(
+        #     sensor_reading
+        # )
 
-        # 8. CURRENT AQI
-        aqi_result = predictor.predict_aqi()
+        # # 8. CURRENT AQI
+        # aqi_result = predictor.predict_aqi()
 
-        # Example:
-        #
-        # {
-        #     "timestamp": "...",
-        #     "aqi": 42.31,
-        #     "category": "Good"
+        # # Example:
+        # #
+        # # {
+        # #     "timestamp": "...",
+        # #     "aqi": 42.31,
+        # #     "category": "Good"
+        # # }
+
+        # # 9. SAVE CURRENT AQI
+        # aqi_prediction = AQIPrediction(
+        #     source_reading_id=sensor_reading.id,
+        #     aqi=aqi_result["aqi"],
+        # )
+
+        # db.add(
+        #     aqi_prediction
+        # )
+
+        # # 10. FORECAST +1, +2, +3 HOURS
+        # forecast_results = (
+        #     predictor.predict_forecast()
+        # )
+
+        # # Example:
+        # #
+        # # {
+        # #     "+h1": {...},
+        # #     "+h2": {...},
+        # #     "+h3": {...}
+        # # }
+
+        # # 11. SAVE EACH FORECAST
+        # for horizon_key, result in forecast_results.items():
+
+        #     # "+h1" -> 1
+        #     # "+h2" -> 2
+        #     # "+h3" -> 3
+
+        #     horizon = int(
+        #         horizon_key.replace("+h", "")
+        #     )
+
+        #     forecast = Forecast(
+        #         station_id=int(station_id),
+        #         source_reading_id=sensor_reading.id,
+        #         horizon_hours=horizon,
+        #         pm25_ugm3=result["pm2_5_ugm3"],
+        #         co_ugm3=result["co_ugm3"],
+        #         no2_ugm3=result["no2_ugm3"],
+        #         temperature_c=result["temperature_c"],
+        #         humidity_pct=result["humidity_pct"],
+        #         aqi=result["aqi"],
+        #     )
+
+        #     db.add(forecast)
+
+        # # 12. COMMIT ALL PREDICTIONS
+        # db.commit()
+
+        # # 13. RETURN RESULTS
+        # return {
+        #     "station_id": int(station_id),
+        #     "sensor_reading_id": sensor_reading.id,
+        #     "timestamp": sensor_reading.timestamp,
+        #     "aqi": aqi_result,
+        #     "forecast": forecast_results,
         # }
-
-        # 9. SAVE CURRENT AQI
-        aqi_prediction = AQIPrediction(
-            source_reading_id=sensor_reading.id,
-            aqi=aqi_result["aqi"],
-        )
-
-        db.add(
-            aqi_prediction
-        )
-
-        # 10. FORECAST +1, +2, +3 HOURS
-        forecast_results = (
-            predictor.predict_forecast()
-        )
-
-        # Example:
-        #
-        # {
-        #     "+h1": {...},
-        #     "+h2": {...},
-        #     "+h3": {...}
-        # }
-
-        # 11. SAVE EACH FORECAST
-        for horizon_key, result in forecast_results.items():
-
-            # "+h1" -> 1
-            # "+h2" -> 2
-            # "+h3" -> 3
-
-            horizon = int(
-                horizon_key.replace("+h", "")
-            )
-
-            forecast = Forecast(
-                station_id=int(station_id),
-                source_reading_id=sensor_reading.id,
-                horizon_hours=horizon,
-                pm25_ugm3=result["pm2_5_ugm3"],
-                co_ugm3=result["co_ugm3"],
-                no2_ugm3=result["no2_ugm3"],
-                temperature_c=result["temperature_c"],
-                humidity_pct=result["humidity_pct"],
-                aqi=result["aqi"],
-            )
-
-            db.add(forecast)
-
-        # 12. COMMIT ALL PREDICTIONS
-        db.commit()
-
-        # 13. RETURN RESULTS
-        return {
-            "station_id": int(station_id),
-            "sensor_reading_id": sensor_reading.id,
-            "timestamp": sensor_reading.timestamp,
-            "aqi": aqi_result,
-            "forecast": forecast_results,
-        }
 
 
 station_manager = StationManager()
