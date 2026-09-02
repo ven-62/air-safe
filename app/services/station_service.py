@@ -12,8 +12,9 @@ READING_DURATION_SECONDS = 60
 PREPARATION_SECONDS = 180
 
 SAMPLING_SCHEDULE = {
-    "S10": {"sleep_minutes": 10, "hours": [(5, 7), (16, 18)], "windows": [9, 24, 39, 54]},
+    "S05": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
     "S15": {"sleep_minutes": 15, "hours": [(11, 12)], "windows": [14, 34, 54]},
+    "S10": {"sleep_minutes": 10, "hours": [(5, 7), (16, 18)], "windows": [9, 24, 39, 54]},
     "S25": {"sleep_minutes": 25, "hours": [(8, 10), (13, 15), (19, 21)], "windows": [24, 54]},
     "S55": {"sleep_minutes": 55, "hours": None, "windows": [54]},
 }
@@ -24,15 +25,15 @@ def now_local() -> datetime:
 
 
 def get_sampling_mode(dt) -> str:
-    hour = dt.hour
-    if 5 <= hour <= 7 or 16 <= hour <= 18:
-        return "S10"
-    if 11 <= hour <= 12:
-        return "S15"
-    if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
-        return "S25"
-    return "S55"
-    
+    # hour = dt.hour
+    # if 5 <= hour <= 7 or 16 <= hour <= 18:
+    #     return "S10"
+    # if 11 <= hour <= 12:
+    #     return "S15"
+    # if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
+    #     return "S25"
+    # return "S55"
+    return "S05"  # For testing, use the fastest schedule.
 
 def get_window(date, hour, slot_minute):
     reading_start = datetime(
