@@ -92,8 +92,8 @@ class StationManager:
 
         # 1. GET SENSOR DATA
         pm2_5 = data.get("pm2_5")
-        co_ugm3 = data.get("co_ugm3")
-        no2_ugm3 = data.get("no2_ugm3")
+        co_ugm3 = data.get("mq7_ugm3")
+        no2_ugm3 = data.get("mq135_ugm3")
         humidity = data.get("humidity")
         temperature = data.get("temperature")
         timestamp = data.get("timestamp")
