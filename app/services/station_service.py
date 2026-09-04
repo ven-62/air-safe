@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 import math
 
 TIMEZONE = ZoneInfo("Asia/Manila")
-BOOT_WAIT_SECONDS = 70
+# BOOT_WAIT_SECONDS = 70
 SAMPLE_INTERVAL_SECONDS = 5
 READING_DURATION_SECONDS = 60
 
@@ -124,7 +124,7 @@ def sleep_response(reason="outside_window"):
         sleep_seconds = 3600
     else:
         # Wake 70 seconds before preparation so /check occurs at preparation start.
-        wake_time = next_start - timedelta(seconds=BOOT_WAIT_SECONDS)
+        wake_time = next_start
         sleep_seconds = max(1, math.ceil((wake_time - now).total_seconds()))
     return {
         "status": "sleep",

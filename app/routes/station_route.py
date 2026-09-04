@@ -54,7 +54,7 @@ async def receive_reading(
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     required_fields = [
-        "pm2_5", "mq7_ppm", "mq135_ppm", "humidity", "temperature"
+        "pm2_5", "mq7_ugm3", "mq135_ugm3", "humidity", "temperature"
     ]
     missing = [field for field in required_fields if field not in data]
     if missing:
@@ -69,8 +69,8 @@ async def receive_reading(
     print("AVERAGED      : True")
     print(f"Sample Count  : {data.get('sample_count', 0)}")
     print(f"PM2.5         : {data.get('pm2_5')}")
-    print(f"CO (MQ7)      : {data.get('mq7_ppm')}")
-    print(f"NO2 (MQ135)   : {data.get('mq135_ppm')}")
+    print(f"CO (MQ7)      : {data.get('co_ugm3')}")
+    print(f"NO2 (MQ135)   : {data.get('no2_ugm3')}")
     print(f"Humidity      : {data.get('humidity')}")
     print(f"Temperature   : {data.get('temperature')}")
     print("=" * 60)

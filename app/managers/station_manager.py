@@ -92,8 +92,8 @@ class StationManager:
 
         # 1. GET SENSOR DATA
         pm2_5 = data.get("pm2_5")
-        mq7_ppm = data.get("mq7_ppm")
-        mq135_ppm = data.get("mq135_ppm")
+        co_ugm3 = data.get("co_ugm3")
+        no2_ugm3 = data.get("no2_ugm3")
         humidity = data.get("humidity")
         temperature = data.get("temperature")
         timestamp = data.get("timestamp")
@@ -111,15 +111,15 @@ class StationManager:
         )
 
         # 3. CONVERT GAS UNITS
-        co_ugm3 = co_ppm_to_ugm3(
-            mq7_ppm,
-            temperature_c=temperature,
-        )
+        # co_ugm3 = co_ppm_to_ugm3(
+        #     mq7_ppm,
+        #     temperature_c=temperature,
+        # )
 
-        no2_ugm3 = no2_ppm_to_ugm3(
-            mq135_ppm,
-            temperature_c=temperature,
-        )
+        # no2_ugm3 = no2_ppm_to_ugm3(
+        #     mq135_ppm,
+        #     temperature_c=temperature,
+        # )
 
         # 4. TIMESTAMP TO SAVE
         saved_timestamp = (
