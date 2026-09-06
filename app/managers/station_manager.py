@@ -10,6 +10,7 @@ from app.core.gas_units import (
 )
 
 from app.models.sensor_readings import SensorReading
+from app.models.calibrated_readings import CalibratedReading
 from app.models.forecast import Forecast
 from app.models.aqi_predictions import AQIPrediction
 
@@ -249,9 +250,32 @@ class StationManager:
         # (in-memory only - the database row itself is untouched).
         #
 
-        predictor.add_db_reading(
+        calibrated = predictor.add_db_reading(
             sensor_reading
         )
+
+        # 7b. SAVE THE CALIBRATED READING
+        #
+        # `calibrated` is the dict returned by the predictor after
+        # applying quantile mapping (or the raw values unchanged, if
+        # the station has no calibration file yet). This is the
+        # "calibrate -> save calibrated data to DB" step: it's a
+        # separate row from the raw SensorReading, timestamped the
+        # same, so the two can be paired later by (station_id, timestamp).
+
+        calibrated_reading = CalibratedReading(
+            station_id=int(station_id),
+            timestamp=sensor_reading.timestamp,
+            pm25_ugm3=calibrated["pm2_5_ugm3"],
+            co_ugm3=calibrated["co_ugm3"],
+            no2_ugm3=calibrated["no2_ugm3"],
+            temperature_c=calibrated["temperature_c"],
+            humidity_pct=calibrated["humidity_pct"],
+        )
+
+        db.add(calibrated_reading)
+        db.commit()
+        db.refresh(calibrated_reading)
 
         try:
             # 8. CURRENT AQI
@@ -266,8 +290,12 @@ class StationManager:
             # }
 
             # 9. SAVE CURRENT AQI
+            #
+            # source_reading_id points at the CalibratedReading, not
+            # the raw SensorReading - that's what the AQIPrediction/
+            # Forecast foreign keys are defined against.
             aqi_prediction = AQIPrediction(
-                source_reading_id=sensor_reading.id,
+                source_reading_id=calibrated_reading.id,
                 aqi=aqi_result["aqi"],
             )
 
@@ -301,7 +329,7 @@ class StationManager:
 
                 forecast = Forecast(
                     station_id=int(station_id),
-                    source_reading_id=sensor_reading.id,
+                    source_reading_id=calibrated_reading.id,
                     horizon_hours=horizon,
                     pm25_ugm3=result["pm2_5_ugm3"],
                     co_ugm3=result["co_ugm3"],

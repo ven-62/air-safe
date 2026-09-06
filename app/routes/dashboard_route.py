@@ -1,40 +1,43 @@
-from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
+
 from app.managers.dashboard_manager import dashboard_manager
 from app.core.websocket_manager import ws_manager
+from app.core.database import get_db
 
 router = APIRouter()
 
 # =========================================================================
-# REST endpoints (unchanged)
+# REST endpoints (now backed by the database instead of placeholder data)
 # =========================================================================
 
 @router.get("/read/{station_id}")
-async def get_pollutant_data(station_id: str):
+async def get_pollutant_data(station_id: str, db: Session = Depends(get_db)):
     """ Endpoint for retrieving pollutant data for a specific station. """
-    pollutant_data = await dashboard_manager.get_pollutant_data(station_id)
+    pollutant_data = await dashboard_manager.get_pollutant_data(station_id, db)
 
     return pollutant_data
 
 
 @router.get("/forecast/{station_id}")
-async def get_forecast_data(station_id: str):
+async def get_forecast_data(station_id: str, db: Session = Depends(get_db)):
     """ Endpoint for retrieving forecast data for a specific station. """
-    forecast_data = await dashboard_manager.get_forecast_data(station_id)
+    forecast_data = await dashboard_manager.get_forecast_data(station_id, db)
 
     return forecast_data
 
 @router.get("/stations")
-async def get_all_stations():
+async def get_all_stations(db: Session = Depends(get_db)):
     """ Endpoint for retrieving a list of all stations. """
-    stations = dashboard_manager.get_all_stations()
+    stations = dashboard_manager.get_all_stations(db)
 
     return stations
 
 @router.get("/history/{station_id}")
-async def get_latest_history(station_id: str):
+async def get_latest_history(station_id: str, db: Session = Depends(get_db)):
     """Endpoint for retrieving history data for a specific station."""
 
-    history_data = await dashboard_manager.get_latest_history(station_id)
+    history_data = await dashboard_manager.get_latest_history(station_id, db)
 
     return history_data
 
