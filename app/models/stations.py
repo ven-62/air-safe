@@ -28,3 +28,13 @@ class Station(Base):
         back_populates="station",
         cascade="all, delete-orphan",
     )
+    calibrated_readings = relationship(
+        "CalibratedReading",
+        back_populates="station",
+        cascade="all, delete-orphan",
+    )
+    forecasts = relationship(
+        "Forecast",
+        back_populates="station",
+        cascade="all, delete-orphan",
+    )

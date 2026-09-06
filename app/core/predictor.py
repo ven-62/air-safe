@@ -150,11 +150,28 @@ class AirQualityPredictor:
         self._history = deque(maxlen=history_size)
 
         # Fixed quantile calibration
+        # Fixed quantile calibration is optional.
+        #
+        # If a calibration file exists, sensor values are mapped into the
+        # training/API domain before prediction.
+        #
+        # If no calibration file is supplied, the predictor uses the raw
+        # physical sensor values directly. This allows the station to make
+        # predictions before calibration has been generated.
         self.sensor_calibration = None
 
         if sensor_calibration_path:
+            calibration_path = os.fspath(sensor_calibration_path)
 
-            self.sensor_calibration = SensorQuantileCalibrator(sensor_calibration_path)
+            if os.path.exists(calibration_path):
+                self.sensor_calibration = SensorQuantileCalibrator(
+                    calibration_path
+                )
+            else:
+                print(
+                    f"WARNING: Calibration file not found: {calibration_path}. "
+                    "Using raw sensor values."
+                )
 
     # MODEL HELPERS
     def _resolve_file(self, filename):
@@ -304,9 +321,12 @@ class AirQualityPredictor:
                     ↓
             normalize/validate
                     ↓
-            quantile calibration
+            optional quantile calibration
                     ↓
             _history
+
+        If no calibration is configured, the normalized raw values are
+        placed directly into _history.
 
         This method DOES NOT write to the database.
 
@@ -314,34 +334,106 @@ class AirQualityPredictor:
         first, then call this method.
         """
 
-        if self.sensor_calibration is None:
-
-            raise ValueError("Sensor calibration is not configured.")
-
         reading = self._db_reading_to_dict(db_reading)
+
+        return self.add_reading(reading)
+
+    def add_reading(self, reading):
+        """
+        Add a raw/current sensor reading to the predictor.
+
+        The input must contain physical sensor values:
+
+            pm2_5_ugm3       -> µg/m³
+            co_ugm3          -> µg/m³
+            no2_ugm3         -> µg/m³
+            temperature_c    -> °C
+            humidity_pct     -> %
+
+        Calibration is optional:
+
+        - With a calibration JSON:
+              raw sensor values -> quantile mapping -> model history
+        - Without a calibration JSON:
+              raw sensor values -> model history
+
+        This means the predictor can operate immediately after deployment,
+        before a station has a calibration file.
+
+        This method does NOT write to the database.
+        """
 
         normalized = self._normalize_reading(reading)
 
-        # Remove timestamp before calibration
+        # Remove timestamp before calibration.
         calibratable = {
-            key: value for key, value in normalized.items() if key != "datetime_ph"
+            key: value
+            for key, value in normalized.items()
+            if key != "datetime_ph"
         }
 
-        # ----------------------------------------------
-        # Apply FIXED quantile mapping
-        # ----------------------------------------------
-
-        aligned = self.sensor_calibration.transform(calibratable)
+        if self.sensor_calibration is not None:
+            # Normal calibrated deployment path.
+            aligned = self.sensor_calibration.transform(calibratable)
+        else:
+            # No calibration available: use raw physical values directly.
+            aligned = dict(calibratable)
 
         aligned["datetime_ph"] = normalized["datetime_ph"]
-
-        # ----------------------------------------------
-        # Add aligned reading to temporary history
-        # ----------------------------------------------
 
         self._history.append(aligned)
 
         return aligned
+
+    def add_calibrated_reading(self, db_reading):
+        """Load an already-calibrated CalibratedReading into history.
+
+        This is used when rebuilding predictor history from the database.
+        It intentionally does NOT apply the quantile normalizer again.
+        """
+        reading = {
+            "pm25_ugm3": db_reading.pm25_ugm3,
+            "co_ugm3": db_reading.co_ugm3,
+            "no2_ugm3": db_reading.no2_ugm3,
+            "temperature_c": db_reading.temperature_c,
+            "humidity_pct": db_reading.humidity_pct,
+            "timestamp": db_reading.timestamp,
+        }
+
+        normalized = self._normalize_reading(reading)
+        self._history.append(normalized)
+        return normalized
+
+    def predict_raw(self, reading, update_history=True):
+        """
+        Predict AQI and optionally forecast directly from raw sensor data.
+
+        This is useful when the station has no calibration file yet.
+
+        The supplied values are assumed to already be in the predictor's
+        physical units (µg/m³, °C, %).
+
+        If update_history=True, the reading is added to _history before
+        prediction. Forecasting therefore uses the new raw reading and
+        whatever previous history is available.
+        """
+
+        if update_history:
+            self.add_reading(reading)
+
+        elif len(self._history) == 0:
+            raise ValueError(
+                "Cannot predict_raw(update_history=False): "
+                "predictor history is empty."
+            )
+
+        aqi = self.predict_aqi()
+        forecast = self.predict_forecast()
+
+        return {
+            "aqi": aqi,
+            "forecast": forecast,
+        }
 
     # RESTORE HISTORY AFTER SERVER RESTART
 
