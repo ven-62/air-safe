@@ -19,29 +19,27 @@ from app.core.websocket_manager import ws_manager
 
 def round_up_to_next_hour(dt: datetime) -> datetime:
     """
-    Round datetime up to the next whole hour.
+    Round a timestamp up to the next whole hour, but ONLY when it's
+    the last reading of that hour (minute == 59). Any other reading
+    keeps its original timestamp untouched.
 
     Examples:
-        07:59:56 -> 08:00:00
-        07:57:58 -> 08:00:00
-        07:30:00 -> 08:00:00
-        08:00:00 -> 08:00:00
+        07:59:56 -> 08:00:00   (last reading of the hour -> rounded)
+        07:59:00 -> 08:00:00   (last reading of the hour -> rounded)
+        07:30:00 -> 07:30:00   (mid-hour reading -> unchanged)
+        08:00:00 -> 08:00:00   (already on the hour -> unchanged)
     """
 
-    if (
-        dt.minute == 0
-        and dt.second == 0
-        and dt.microsecond == 0
-    ):
-        return dt
+    if dt.minute == 59:
+        return (
+            dt + timedelta(hours=1)
+        ).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
 
-    return (
-        dt + timedelta(hours=1)
-    ).replace(
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
+    return dt
 
 
 # =========================================================================
@@ -192,11 +190,11 @@ class StationManager:
         # )
 
         # 4. TIMESTAMP TO SAVE
-        saved_timestamp = (
-            round_up_to_next_hour(reading_dt)
-            if is_last
-            else reading_dt
-        )
+        #
+        # round_up_to_next_hour() only rounds when this is truly the
+        # last reading of the hour (minute == 59); any other reading
+        # keeps its original timestamp.
+        saved_timestamp = round_up_to_next_hour(reading_dt)
 
         # 5. SAVE SENSOR READING
         sensor_reading = SensorReading(
