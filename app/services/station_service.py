@@ -25,15 +25,15 @@ def now_local() -> datetime:
 
 
 def get_sampling_mode(dt) -> str:
-    # hour = dt.hour
-    # if 5 <= hour <= 7 or 16 <= hour <= 18:
-    #     return "S10"
-    # if 11 <= hour <= 12:
-    #     return "S15"
-    # if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
-    #     return "S25"
-    # return "S55"
-    return "S05"  # For testing, use the fastest schedule.
+    hour = dt.hour
+    if 5 <= hour <= 7 or 16 <= hour <= 18:
+        return "S10"
+    if 11 <= hour <= 12:
+        return "S15"
+    if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
+        return "S25"
+    return "S55"
+    # return "S05"  # For testing, use the fastest schedule.
 
 def get_window(date, hour, slot_minute):
     reading_start = datetime(
