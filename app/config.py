@@ -15,3 +15,9 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY")
     HF_REPO_ID = os.getenv("HF_REPO_ID")
     HF_TOKEN = os.getenv("HF_TOKEN")
+
+    # MQTT configuration
+    MQTT_HOST = os.getenv("MQTT_HOST")
+    MQTT_PORT = int(os.getenv("MQTT_PORT"))
+    MQTT_USERNAME = os.getenv("MQTT_USERNAME")
+    MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")

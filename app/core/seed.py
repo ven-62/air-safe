@@ -12,14 +12,14 @@ def seed_stations():
             {
                 "name": "Plaza Rizal", # Station 1
                 "city": "Naga City",
-                "latitude": 13.6218,
-                "longitude": 123.1948,
+                "latitude": 13.623170003841329,
+                "longitude": 123.18480740588977,
             },
             {
                 "name": "Naga City People's Mall", # Station 2
                 "city": "Naga City",
-                "latitude": 13.6258,
-                "longitude": 123.1857
+                "latitude": 13.621406356892528,
+                "longitude": 123.1836669824267
             }
         ]
 
