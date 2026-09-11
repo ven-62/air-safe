@@ -102,19 +102,34 @@ class MQTTManager:
                 return
 
             if message_type == "check":
-                asyncio.run_coroutine_threadsafe(
+                future = asyncio.run_coroutine_threadsafe(
                     self.handle_check(station_id, payload),
                     self.loop,
                 )
+                future.add_done_callback(self._log_task_exception)
 
             elif message_type == "reading":
-                asyncio.run_coroutine_threadsafe(
+                future = asyncio.run_coroutine_threadsafe(
                     self.handle_reading(station_id, payload),
                     self.loop,
                 )
+                future.add_done_callback(self._log_task_exception)
 
         except Exception as exc:
             print(f"[MQTT] Message error: {exc}")
+
+    @staticmethod
+    def _log_task_exception(future):
+        # run_coroutine_threadsafe() hands back a concurrent.futures.Future.
+        # If handle_check()/handle_reading() raises, that exception is
+        # stored on the future and NEVER surfaces unless something calls
+        # .result()/.exception() on it — otherwise the station's message
+        # just silently vanishes with no server-side log at all, which is
+        # indistinguishable from a dropped MQTT message. This callback
+        # makes sure a crash is always printed instead of swallowed.
+        exc = future.exception()
+        if exc is not None:
+            print(f"[MQTT] Handler task failed: {exc!r}")
 
     async def handle_check(self, station_id, data):
 

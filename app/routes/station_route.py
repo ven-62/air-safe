@@ -11,8 +11,6 @@ from app.services.station_service import (
     active_response,
     sleep_response,
 )
-from app.core.mqtt_manager import mqtt_manager
-import asyncio
 
 router = APIRouter()
 
