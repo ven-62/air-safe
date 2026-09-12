@@ -12,7 +12,7 @@ READING_DURATION_SECONDS = 60
 PREPARATION_SECONDS = 180
 
 SAMPLING_SCHEDULE = {
-    "T5": {"sleep_minutes": 10, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
+    "T5": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
     "S15": {"sleep_minutes": 15, "hours": [(11, 12)], "windows": [14, 34, 54]},
     "S10": {"sleep_minutes": 10, "hours": [(5, 7), (16, 18)], "windows": [9, 24, 39, 54]},
     "S25": {"sleep_minutes": 25, "hours": [(8, 10), (13, 15), (19, 21)], "windows": [24, 54]},
