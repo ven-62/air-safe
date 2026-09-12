@@ -92,14 +92,14 @@ def prepare_response(mode, prepare_start, reading_start, reading_end):
     return {
         "status": "prepare",
         "action": "prepare",
-        "mode": mode,
-        "server_time": now.isoformat(),
-        "prepare_start": prepare_start.isoformat(),
-        "reading_start": reading_start.isoformat(),
-        "reading_end": reading_end.isoformat(),
+        # "mode": mode,
+        # "server_time": now.isoformat(),
+        # "prepare_start": prepare_start.isoformat(),
+        # "reading_start": reading_start.isoformat(),
+        # "reading_end": reading_end.isoformat(),
         "prepare_seconds": max(0, math.ceil((reading_start - now).total_seconds())),
-        "reading_duration_seconds": READING_DURATION_SECONDS,
-        "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        # "reading_duration_seconds": READING_DURATION_SECONDS,
+        # "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
     }
 
 
@@ -108,12 +108,12 @@ def active_response(mode, reading_start, reading_end):
     return {
         "status": "active",
         "action": "read",
-        "mode": mode,
-        "server_time": now.isoformat(),
-        "window_start": reading_start.isoformat(),
-        "window_end": reading_end.isoformat(),
+        # "mode": mode,
+        # "server_time": now.isoformat(),
+        # "window_start": reading_start.isoformat(),
+        # "window_end": reading_end.isoformat(),
         "remaining_seconds": max(0, math.ceil((reading_end - now).total_seconds())),
-        "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        # "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
     }
 
 
@@ -130,7 +130,7 @@ def sleep_response(reason="outside_window"):
         "status": "sleep",
         "action": "sleep",
         "reason": reason,
-        "server_time": now.isoformat(),
+        # "server_time": now.isoformat(),
         "sleep_seconds": sleep_seconds,
         "next_prepare_start": next_start.isoformat() if next_start else None,
     }
