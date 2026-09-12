@@ -132,6 +132,7 @@ class MQTTManager:
             print(f"[MQTT] Handler task failed: {exc!r}")
 
     async def handle_check(self, station_id, data):
+        print(f"[CHECK] RECEIVED from station {station_id}")
 
         now = now_local()
 
