@@ -167,9 +167,10 @@ class StationManager:
         timestamp = data.get("timestamp")
 
         if timestamp is None:
-            raise ValueError(
-                "Sensor reading is missing timestamp."
-            )
+            timestamp = datetime.now().isoformat()
+            # raise ValueError(
+            #     "Sensor reading is missing timestamp."
+            # )
 
         # 2. PARSE TIMESTAMP
         reading_dt = (
