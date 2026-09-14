@@ -35,7 +35,7 @@ def get_sampling_mode(dt) -> str:
     # if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
     #     return "S25"
     # return "S55"
-    return "T11"  # For testing, use the fastest schedule.
+    return "T7"  # For testing, use the fastest schedule.
 
 def get_window(date, hour, slot_minute):
     reading_start = datetime(
