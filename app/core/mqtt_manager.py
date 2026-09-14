@@ -135,78 +135,103 @@ class MQTTManager:
         print(f"[CHECK] RECEIVED from station {station_id}")
 
         now = now_local()
-
         print(f"[CHECK] Station {station_id} at {now.isoformat()}")
-
-        # ---------------------------------------------------------
-        # ACTIVE READING WINDOW
-        # ---------------------------------------------------------
 
         active, mode, reading_start, reading_end = is_active_window(now)
 
         if active:
-            print(
-                f"[CHECK] Station {station_id}: READ ({mode}) "
-                f"{reading_start} -> {reading_end}"
-            )
-
             response = active_response(
-                mode,
-                reading_start,
-                reading_end,
+                mode, reading_start, reading_end
             )
+        else:
+            mode, prepare_start, reading_start, reading_end = current_window(now)
 
-            self.publish_command(
-                station_id,
-                response,
-            )
+            if mode is not None and prepare_start <= now < reading_start:
+                response = prepare_response(
+                    mode, prepare_start, reading_start, reading_end
+                )
+            else:
+                response = sleep_response("outside_window")
 
-            return
+        print(f"[CHECK] Response: {response}")
+        self.publish_command(station_id, response)
 
-        # ---------------------------------------------------------
-        # PREPARATION WINDOW
-        # ---------------------------------------------------------
+    # async def handle_check(self, station_id, data):
+    #     print(f"[CHECK] RECEIVED from station {station_id}")
 
-        mode, prepare_start, reading_start, reading_end = current_window(now)
+    #     now = now_local()
 
-        if (
-            mode is not None
-            and prepare_start <= now < reading_start
-        ):
+    #     print(f"[CHECK] Station {station_id} at {now.isoformat()}")
 
-            print(
-                f"[CHECK] Station {station_id}: PREPARE ({mode}) "
-                f"reading starts at {reading_start}"
-            )
+    #     # ---------------------------------------------------------
+    #     # ACTIVE READING WINDOW
+    #     # ---------------------------------------------------------
 
-            response = prepare_response(
-                mode,
-                prepare_start,
-                reading_start,
-                reading_end,
-            )
+    #     active, mode, reading_start, reading_end = is_active_window(now)
 
-            self.publish_command(
-                station_id,
-                response,
-            )
+    #     if active:
+    #         print(
+    #             f"[CHECK] Station {station_id}: READ ({mode}) "
+    #             f"{reading_start} -> {reading_end}"
+    #         )
 
-            return
+    #         response = active_response(
+    #             mode,
+    #             reading_start,
+    #             reading_end,
+    #         )
 
-        # ---------------------------------------------------------
-        # OUTSIDE WINDOW
-        # ---------------------------------------------------------
+    #         self.publish_command(
+    #             station_id,
+    #             response,
+    #         )
 
-        print(f"[CHECK] Station {station_id}: SLEEP")
+    #         return
 
-        response = sleep_response(
-            "outside_window"
-        )
+    #     # ---------------------------------------------------------
+    #     # PREPARATION WINDOW
+    #     # ---------------------------------------------------------
 
-        self.publish_command(
-            station_id,
-            response,
-        )
+    #     mode, prepare_start, reading_start, reading_end = current_window(now)
+
+    #     if (
+    #         mode is not None
+    #         and prepare_start <= now < reading_start
+    #     ):
+
+    #         print(
+    #             f"[CHECK] Station {station_id}: PREPARE ({mode}) "
+    #             f"reading starts at {reading_start}"
+    #         )
+
+    #         response = prepare_response(
+    #             mode,
+    #             prepare_start,
+    #             reading_start,
+    #             reading_end,
+    #         )
+
+    #         self.publish_command(
+    #             station_id,
+    #             response,
+    #         )
+
+    #         return
+
+    #     # ---------------------------------------------------------
+    #     # OUTSIDE WINDOW
+    #     # ---------------------------------------------------------
+
+    #     print(f"[CHECK] Station {station_id}: SLEEP")
+
+    #     response = sleep_response(
+    #         "outside_window"
+    #     )
+
+    #     self.publish_command(
+    #         station_id,
+    #         response,
+    #     )
 
     async def handle_reading(self, station_id, data):
 

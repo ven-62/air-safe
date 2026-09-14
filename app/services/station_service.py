@@ -119,20 +119,40 @@ def active_response(mode, reading_start, reading_end):
     }
 
 
+# def sleep_response(reason="outside_window"):
+#     now = now_local()
+#     next_start = next_prepare_start(now)
+#     if next_start is None:
+#         sleep_seconds = 3600
+#     else:
+#         # Wake 70 seconds before preparation so /check occurs at preparation start.
+#         wake_time = next_start
+#         sleep_seconds = max(1, math.ceil((wake_time - now).total_seconds()))
+#     return {
+#         "status": "sleep",
+#         "action": "sleep",
+#         # "reason": reason,
+#         # "server_time": now.isoformat(),
+#         "sleep_seconds": sleep_seconds,
+#         # "next_prepare_start": next_start.isoformat() if next_start else None,
+#     }
+
 def sleep_response(reason="outside_window"):
     now = now_local()
     next_start = next_prepare_start(now)
-    if next_start is None:
-        sleep_seconds = 3600
-    else:
-        # Wake 70 seconds before preparation so /check occurs at preparation start.
-        wake_time = next_start
-        sleep_seconds = max(1, math.ceil((wake_time - now).total_seconds()))
+
+    sleep_seconds = (
+        3600
+        if next_start is None
+        else max(1, math.ceil((next_start - now).total_seconds()))
+    )
+
     return {
         "status": "sleep",
         "action": "sleep",
         # "reason": reason,
-        # "server_time": now.isoformat(),
         "sleep_seconds": sleep_seconds,
-        # "next_prepare_start": next_start.isoformat() if next_start else None,
+        "next_prepare_start": (
+            next_start.isoformat() if next_start else None
+        ),
     }
