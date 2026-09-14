@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -167,7 +168,7 @@ class StationManager:
         timestamp = data.get("timestamp")
 
         if timestamp is None:
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.now(ZoneInfo("Asia/Manila")).strftime("%Y-%m-%dT%H:%M:%S")
             # raise ValueError(
             #     "Sensor reading is missing timestamp."
             # )
