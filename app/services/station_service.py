@@ -9,7 +9,7 @@ READING_DURATION_SECONDS = 60
 
 # Preparation starts 3 minutes before the actual 1-minute reading.
 # This is enough for the MQ135 warm-up.
-PREPARATION_SECONDS = 330
+PREPARATION_SECONDS = 270
 
 SAMPLING_SCHEDULE = {
     # "T5": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
