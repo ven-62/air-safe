@@ -21,3 +21,6 @@ class Config:
     MQTT_PORT = int(os.getenv("MQTT_PORT"))
     MQTT_USERNAME = os.getenv("MQTT_USERNAME")
     MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+
+    # OpenWeatherMap API key
+    OWM_API_KEY = os.getenv("OWM_API_KEY")

@@ -54,8 +54,7 @@ import numpy as np
 import pandas as pd
 from huggingface_hub import hf_hub_download
 
-from app.calibration.quantile_normalizer import SensorQuantileCalibrator
-
+from app.calibration.calibrate_sensors import calibrate_air_quaility_live
 # COLUMN ALIASES
 
 _COLUMN_ALIASES = {
@@ -117,7 +116,6 @@ class AirQualityPredictor:
         hf_repo_id=None,
         hf_revision=None,
         hf_token=None,
-        sensor_calibration_path=None,
     ):
 
         # Model configuration
@@ -158,20 +156,6 @@ class AirQualityPredictor:
         # If no calibration file is supplied, the predictor uses the raw
         # physical sensor values directly. This allows the station to make
         # predictions before calibration has been generated.
-        self.sensor_calibration = None
-
-        if sensor_calibration_path:
-            calibration_path = os.fspath(sensor_calibration_path)
-
-            if os.path.exists(calibration_path):
-                self.sensor_calibration = SensorQuantileCalibrator(
-                    calibration_path
-                )
-            else:
-                print(
-                    f"WARNING: Calibration file not found: {calibration_path}. "
-                    "Using raw sensor values."
-                )
 
     # MODEL HELPERS
     def _resolve_file(self, filename):
@@ -310,7 +294,7 @@ class AirQualityPredictor:
             "timestamp": db_reading.timestamp,
         }
 
-    def add_db_reading(self, db_reading):
+    def add_db_reading(self, db_reading, db, station_id=None):
         """
         Add an already-saved SQLAlchemy SensorReading
         into the predictor.
@@ -336,9 +320,9 @@ class AirQualityPredictor:
 
         reading = self._db_reading_to_dict(db_reading)
 
-        return self.add_reading(reading)
+        return self.add_reading(reading, db, station_id=station_id)
 
-    def add_reading(self, reading):
+    def add_reading(self, reading, db, station_id=None):
         """
         Add a raw/current sensor reading to the predictor.
 
@@ -366,18 +350,20 @@ class AirQualityPredictor:
         normalized = self._normalize_reading(reading)
 
         # Remove timestamp before calibration.
-        calibratable = {
-            key: value
-            for key, value in normalized.items()
-            if key != "datetime_ph"
-        }
+        # calibratable = {
+        #     key: value
+        #     for key, value in normalized.items()
+        #     if key != "datetime_ph"
+        # }
 
-        if self.sensor_calibration is not None:
-            # Normal calibrated deployment path.
-            aligned = self.sensor_calibration.transform(calibratable)
-        else:
-            # No calibration available: use raw physical values directly.
-            aligned = dict(calibratable)
+        aligned = calibrate_air_quaility_live(db, station_id, normalized)
+
+        # if self.sensor_calibration is not None:
+        #     # Normal calibrated deployment path.
+        #     aligned = self.sensor_calibration.transform(calibratable)
+        # else:
+        #     # No calibration available: use raw physical values directly.
+        #     aligned = dict(calibratable)
 
         aligned["datetime_ph"] = normalized["datetime_ph"]
 

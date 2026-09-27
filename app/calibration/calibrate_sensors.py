@@ -1,408 +1,275 @@
 """
-calibrate_sensors.py
+Rolling Bias Correction for Air Quality Monitoring.
 
-Build frozen quantile-mapping calibration files for each station.
+Live sources:
+    - OpenWeatherMap Air Pollution API -> pm2.5, co, no2
+    - Open-Meteo Forecast API          -> temperature, humidity
 
-Purpose:
-    Align the statistical distribution of physical sensor measurements
-    with the distribution of the API-derived training data.
+Expected `history_df` schema (last up to 5 hourly rows, oldest -> newest):
+    timestamp, pm25_api, pm25_sensor, co_api, co_sensor, no2_api, no2_sensor
 
-Calibration flow:
-
-    Sensor distribution
-           |
-           | percentile
-           v
-    Training distribution
-           |
-           v
-    Aligned sensor value
-
-The resulting JSON files are used during deployment by
-quantile_normalizer.py.
-
-IMPORTANT:
-    This script should be run using the calibration period only.
-    Do NOT include future deployment/evaluation data when generating
-    the calibration mappings.
+`sensor_data` : {"pm25": float|None, "co": float|None, "no2": float|None}
 """
 
-from pathlib import Path
-import json
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Optional
 
 import numpy as np
 import pandas as pd
+import requests
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.sensor_readings import SensorReading  # adjust to your actual import path
+from app.config import Config
+
+OWM_API_KEY = Config.OWM_API_KEY
+POLLUTANTS = ("pm2_5_ugm3", "co_ugm3", "no2_ugm3")  # keys in SensorReading and API data
+ROLLING_WINDOW_HOURS = 6
+HISTORY_HOURS = ROLLING_WINDOW_HOURS - 1  # 5 hours of history + 1 current reading
+MIN_MULTIPLIER = 0.3
+MAX_MULTIPLIER = 3.0
+
+OWM_AIR_POLLUTION_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# Naga City, Bicol Region, PH — default deployment coordinates.
+DEFAULT_LAT = 13.62326
+DEFAULT_LON = 123.18493
+
+REQUEST_TIMEOUT_SECONDS = 10
+
+HISTORY_COLUMNS = ["timestamp"] + [
+    f"{p}_{source}" for p in POLLUTANTS for source in ("api", "sensor")
+]
 
 
-# CONFIGURATION
-
-INPUT_CSV = "calibration_data.csv"
-
-OUTPUT_DIR = Path("calibration")
-
-# Use finer quantiles
-# 5% intervals are a good practical choice.
-PERCENTILES = np.arange(0, 101, 5, dtype=float)
-
-# Minimum observations required to build a calibration mapping.
-# 30 days of hourly data ≈ 720 observations.
-MIN_CALIBRATION_SAMPLES = 300
-
-
-# COLUMN DEFINITIONS
-
-# Physical sensor columns
-SENSOR_COLUMNS = {
-    "pm2_5_ugm3": "pm2_5_sensor",
-    "co_ugm3": "co_sensor",
-    "no2_ugm3": "no2_sensor",
-    "temperature_c": "temperature_sensor",
-    "humidity_pct": "humidity_sensor",
-}
-
-# API / training-domain columns
-API_COLUMNS = {
-    "pm2_5_ugm3": "pm2_5_api",
-    "co_ugm3": "co_api",
-    "no2_ugm3": "no2_api",
-    "temperature_c": "temperature_api",
-    "humidity_pct": "humidity_api",
-}
-
-
-# VALIDATION
-
-def validate_columns(df: pd.DataFrame):
-    required = ["timestamp", "station_id"]
-
-    required.extend(SENSOR_COLUMNS.values())
-    required.extend(API_COLUMNS.values())
-
-    missing = [col for col in required if col not in df.columns]
-
-    if missing:
-        raise ValueError(
-            "Missing required columns:\n"
-            + "\n".join(f"  - {col}" for col in missing)
-        )
-
-
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean obviously invalid sensor/API observations.
-
-    This does NOT perform calibration.
-    It only removes invalid rows.
-    """
-
-    df = df.copy()
-
-    df["timestamp"] = pd.to_datetime(
-        df["timestamp"],
-        errors="coerce"
+def fetch_owm_air_pollution(
+    owm_api_key: str = OWM_API_KEY, lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON
+) -> dict:
+    """Fetch current PM2.5, CO, NO2 from the OpenWeatherMap Air Pollution API."""
+    params = {"lat": lat, "lon": lon, "appid": owm_api_key}
+    response = requests.get(
+        OWM_AIR_POLLUTION_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS
     )
-
-    # Remove invalid timestamps
-    df = df.dropna(subset=["timestamp"])
-
-    # Remove duplicate timestamp/station combinations
-    df = (
-        df.sort_values(["station_id", "timestamp"])
-          .drop_duplicates(
-              subset=["station_id", "timestamp"],
-              keep="last"
-          )
-    )
-
-    # Convert numeric columns
-    numeric_columns = (
-        list(SENSOR_COLUMNS.values())
-        + list(API_COLUMNS.values())
-    )
-
-    for column in numeric_columns:
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        )
-
-    # Remove rows with missing required values
-    df = df.dropna(
-        subset=numeric_columns
-    )
-
-    # Basic physical validity checks
-
-    # Pollutants cannot be negative
-    for column in [
-        "pm2_5_sensor",
-        "co_sensor",
-        "no2_sensor",
-        "pm2_5_api",
-        "co_api",
-        "no2_api",
-    ]:
-        df = df[df[column] >= 0]
-
-    # Humidity must be 0-100%
-    for column in [
-        "humidity_sensor",
-        "humidity_api",
-    ]:
-        df = df[
-            (df[column] >= 0)
-            & (df[column] <= 100)
-        ]
-
-    # Reasonable temperature range.
-    # Adjust if your study requires a different range.
-    for column in [
-        "temperature_sensor",
-        "temperature_api",
-    ]:
-        df = df[
-            (df[column] >= -20)
-            & (df[column] <= 60)
-        ]
-
-    return df.reset_index(drop=True)
-
-
-# QUANTILE TABLE
-
-def calculate_quantiles(values):
-    """
-    Calculate the selected empirical quantiles.
-
-    Returns:
-        {
-            "percentiles": [...],
-            "values": [...]
-        }
-    """
-
-    values = np.asarray(values, dtype=float)
-
-    values = values[
-        np.isfinite(values)
-    ]
-
-    if len(values) == 0:
-        raise ValueError(
-            "Cannot calculate quantiles from empty data."
-        )
-
-    quantile_values = np.percentile(
-        values,
-        PERCENTILES
-    )
+    response.raise_for_status()
+    components = response.json()["list"][0]["components"]
 
     return {
-        "percentiles": PERCENTILES.tolist(),
-        "values": quantile_values.tolist(),
+        "pm2_5_ugm3": components.get("pm2_5"),
+        "co_ugm3": components.get("co"),
+        "no2_ugm3": components.get("no2"),
     }
 
 
-# BUILD ONE STATION'S CALIBRATION
+def fetch_open_meteo_weather(
+    lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON
+) -> dict:
+    """Fetch current temperature and relative humidity from Open-Meteo."""
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m",
+    }
+    response = requests.get(
+        OPEN_METEO_FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    current = response.json()["current"]
 
-def build_station_calibration(
-    station_df: pd.DataFrame,
-    station_id: str
-):
-    """
-    Build a frozen quantile mapping for one station.
-
-    For every feature:
-
-        sensor value
-             ↓
-        sensor percentile
-             ↓
-        training/API percentile
-             ↓
-        aligned value
-    """
-
-    calibration = {
-        "_metadata": {
-            "station_id": str(station_id),
-            "method": "empirical_quantile_mapping",
-            "percentile_step": 5,
-            "source": "30-day sensor/API collocation",
-            "frozen": True,
-            "sample_count": int(len(station_df)),
-        }
+    return {
+        "temperature_c": current.get("temperature_2m"),
+        "humidity_pct": current.get("relative_humidity_2m"),
     }
 
-    for feature, sensor_column in SENSOR_COLUMNS.items():
 
-        api_column = API_COLUMNS[feature]
+def fetch_current_api_data(
+    owm_api_key: str = OWM_API_KEY, lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON
+) -> dict:
+    """Combine OWM pollutant data and Open-Meteo weather data into one dict."""
+    api_data = fetch_owm_air_pollution(owm_api_key, lat, lon)
+    api_data.update(fetch_open_meteo_weather(lat, lon))
+    return api_data
 
-        sensor_values = station_df[
-            sensor_column
-        ].to_numpy(dtype=float)
 
-        api_values = station_df[
-            api_column
-        ].to_numpy(dtype=float)
+def fetch_owm_air_pollution_history(
+    start: datetime,
+    end: datetime,
+    owm_api_key: str = OWM_API_KEY,
+    lat: float = DEFAULT_LAT,
+    lon: float = DEFAULT_LON,
+) -> list[dict]:
+    """Fetch hourly historical PM2.5/CO/NO2 from OWM between start and end (UTC)."""
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "start": int(start.timestamp()),
+        "end": int(end.timestamp()),
+        "appid": owm_api_key,
+    }
+    response = requests.get(
+        f"{OWM_AIR_POLLUTION_URL}/history",
+        params=params,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    entries = response.json()["list"]
 
-        # Sensor distribution
-
-        sensor_quantiles = calculate_quantiles(
-            sensor_values
-        )
-
-        # Training/API distribution
-
-        api_quantiles = calculate_quantiles(
-            api_values
-        )
-
-        calibration[feature] = {
-            "percentiles": sensor_quantiles["percentiles"],
-
-            # CDF of the sensor
-            "sensor_values": sensor_quantiles["values"],
-
-            # Target/training-domain CDF
-            "training_values": api_quantiles["values"],
+    return [
+        {
+            "timestamp": datetime.fromtimestamp(e["dt"], tz=timezone.utc),
+            "pm25_ugm3": e["components"].get("pm2_5"),
+            "co_ugm3": e["components"].get("co"),
+            "no2_ugm3": e["components"].get("no2"),
         }
+        for e in entries
+    ]
 
-    return calibration
+
+def fetch_sensor_history(
+    db: Session, station_id: int, limit: int = HISTORY_HOURS
+) -> list[SensorReading]:
+    """Fetch the last `limit` sensor readings for a station, oldest first."""
+    stmt = (
+        select(SensorReading)
+        .where(SensorReading.station_id == station_id)
+        .order_by(SensorReading.timestamp.desc())
+        .limit(limit)
+    )
+    rows = db.execute(stmt).scalars().all()
+    return list(reversed(rows))
 
 
-# MAIN
+def _nearest_owm_entry(owm_history: list[dict], target: datetime) -> Optional[dict]:
+    if not owm_history:
+        return None
+    return min(owm_history, key=lambda e: abs((e["timestamp"] - target).total_seconds()))
 
-def main():
 
-    print("=" * 60)
-    print("SENSOR QUANTILE CALIBRATION")
-    print("=" * 60)
+def build_history_df(
+    db: Session,
+    station_id: int,
+    owm_api_key: str,
+    lat: float = DEFAULT_LAT,
+    lon: float = DEFAULT_LON,
+    hours: int = HISTORY_HOURS,
+) -> pd.DataFrame:
+    """Build the rolling-correction history DataFrame from DB sensor readings + OWM history."""
+    sensor_rows = fetch_sensor_history(db, station_id, limit=hours)
+    if not sensor_rows:
+        return pd.DataFrame(columns=HISTORY_COLUMNS)
 
-    # Load
-
-    print(f"\nLoading: {INPUT_CSV}")
-
-    df = pd.read_csv(INPUT_CSV)
-
-    validate_columns(df)
-
-    print(f"Raw rows: {len(df):,}")
-
-    # Clean
-
-    df = clean_data(df)
-
-    print(f"Clean rows: {len(df):,}")
-
-    # Prepare output directory
-
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
+    owm_history = fetch_owm_air_pollution_history(
+        owm_api_key, sensor_rows[0].timestamp, sensor_rows[-1].timestamp, lat, lon
     )
 
-    # Process every station independently
-
-    stations = sorted(
-        df["station_id"]
-        .dropna()
-        .astype(str)
-        .unique()
-    )
-
-    print(f"\nStations found: {stations}")
-
-    for station_id in stations:
-
-        station_df = (
-            df[
-                df["station_id"].astype(str)
-                == station_id
-            ]
-            .sort_values("timestamp")
-            .reset_index(drop=True)
+    records = []
+    for row in sensor_rows:
+        api_match = _nearest_owm_entry(owm_history, row.timestamp) or {}
+        records.append(
+            {
+                "datetime_ph": row.timestamp,
+                "pm25_api": api_match.get("pm25_ugm3"),
+                "pm25_sensor": row.pm25_ugm3,
+                "co_api": api_match.get("co_ugm3"),
+                "co_sensor": row.co_ugm3,
+                "no2_api": api_match.get("no2_ugm3"),
+                "no2_sensor": row.no2_ugm3,
+            }
         )
 
-        print("\n" + "-" * 60)
-        print(f"Station: {station_id}")
-        print(f"Observations: {len(station_df):,}")
+    return pd.DataFrame(records, columns=HISTORY_COLUMNS)
 
-        if len(station_df) < MIN_CALIBRATION_SAMPLES:
-            raise ValueError(
-                f"{station_id} only has "
-                f"{len(station_df)} observations. "
-                f"At least {MIN_CALIBRATION_SAMPLES} "
-                f"are required."
-            )
 
-        # Build mapping
-        calibration = build_station_calibration(
-            station_df,
-            station_id
+def calibrate_air_quality_live(
+    db: Session,
+    station_id: int,
+    sensor_data: dict,
+    owm_api_key: str = OWM_API_KEY,
+    lat: float = DEFAULT_LAT,
+    lon: float = DEFAULT_LON,
+    timestamp: Optional[datetime] = None,
+) -> dict:
+    """Pull live API data + DB sensor history, then apply rolling bias correction."""
+    api_data = fetch_current_api_data(owm_api_key, lat, lon)
+    history_df = build_history_df(db, station_id, owm_api_key, lat, lon)
+    return calibrate_air_quality(api_data, sensor_data, history_df, timestamp)
+
+
+def calibrate_air_quality(
+    api_data: dict,
+    sensor_data: dict,
+    history_df: pd.DataFrame,
+    timestamp: Optional[datetime] = None,
+) -> dict:
+    """Return a calibrated pollutant reading using a rolling bias multiplier."""
+    ts = timestamp or datetime.now(timezone.utc)
+
+    current_row = {"datetime_ph": ts}
+    for p in POLLUTANTS:
+        current_row[f"{p}_api"] = api_data.get(p)
+        current_row[f"{p}_sensor"] = sensor_data.get(p)
+
+    if history_df is None or history_df.empty:
+        window_df = pd.DataFrame([current_row])
+    else:
+        window_df = pd.concat(
+            [history_df, pd.DataFrame([current_row])], ignore_index=True
+        )
+    window_df = window_df.tail(ROLLING_WINDOW_HOURS).reset_index(drop=True)
+
+    calibrated: dict = {
+        "datetime_ph": ts.isoformat() if isinstance(ts, datetime) else ts
+    }
+
+    for p in POLLUTANTS:
+        multiplier = _rolling_multiplier(window_df, p)
+        api_value = api_data.get(p)
+        calibrated[p] = (
+            round(api_value * multiplier, 2) if api_value is not None else None
         )
 
-        # Save
-        output_file = (
-            OUTPUT_DIR
-            / f"{station_id}_quantile_mapping.json"
-        )
+    calibrated["temperature_c"] = api_data.get("temperature")
+    calibrated["humidity_pct"] = api_data.get("humidity")
 
-        with open(
-            output_file,
-            "w",
-            encoding="utf-8"
-        ) as f:
+    return calibrated
 
-            json.dump(
-                calibration,
-                f,
-                indent=2
-            )
 
-        print(
-            f"Saved calibration: {output_file}"
-        )
+def _rolling_multiplier(window_df: pd.DataFrame, pollutant: str) -> float:
+    """Compute the forward-filled rolling mean sensor/API ratio for one pollutant."""
+    api_col = pd.to_numeric(window_df[f"{pollutant}_api"], errors="coerce")
+    sensor_col = pd.to_numeric(window_df[f"{pollutant}_sensor"], errors="coerce")
 
-        # Print summary
-        for feature in SENSOR_COLUMNS:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = sensor_col / api_col
+    ratio = ratio.where((api_col != 0) & api_col.notna() & sensor_col.notna())
 
-            sensor_q = calibration[
-                feature
-            ]["sensor_values"]
+    ratio_filled = ratio.ffill()
+    valid_ratios = ratio_filled.dropna()
 
-            train_q = calibration[
-                feature
-            ]["training_values"]
+    if valid_ratios.empty:
+        return 1.0
 
-            print(
-                f"\n{feature}"
-            )
+    multiplier = float(valid_ratios.mean())
+    if not np.isfinite(multiplier) or multiplier <= 0:
+        return 1.0
 
-            print(
-                f"  Sensor range: "
-                f"{sensor_q[0]:.4f} → "
-                f"{sensor_q[-1]:.4f}"
-            )
-
-            print(
-                f"  Training range: "
-                f"{train_q[0]:.4f} → "
-                f"{train_q[-1]:.4f}"
-            )
-
-    print("\n" + "=" * 60)
-    print("CALIBRATION COMPLETE")
-    print("=" * 60)
-
-    print(
-        "\nCalibration files are now frozen."
-    )
-
-    print(
-        "Do NOT update them using future deployment/evaluation data."
-    )
+    return min(max(multiplier, MIN_MULTIPLIER), MAX_MULTIPLIER)
 
 
 if __name__ == "__main__":
-    main()
+    import os
+
+    from app.core.database import SessionLocal  # adjust to your actual session factory
+
+    OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
+    STATION_ID = 1
+    sensor_now = {"pm25_ugm3": 27.5, "co_ugm3": None, "no2_ugm3": None}
+
+    with SessionLocal() as db:
+        result = calibrate_air_quality_live(
+            db, STATION_ID, sensor_now, owm_api_key=OWM_API_KEY
+        )
+    print(result)

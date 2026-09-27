@@ -31,7 +31,7 @@ def round_up_to_next_hour(dt: datetime) -> datetime:
         08:00:00 -> 08:00:00   (already on the hour -> unchanged)
     """
 
-    if dt.minute == 59:
+    if dt.minute in (58, 59, 60, 1):
         return (
             dt + timedelta(hours=1)
         ).replace(
@@ -251,7 +251,7 @@ class StationManager:
         #
 
         calibrated = predictor.add_db_reading(
-            sensor_reading
+            sensor_reading, db, station_id=station_id
         )
 
         # 7b. SAVE THE CALIBRATED READING
