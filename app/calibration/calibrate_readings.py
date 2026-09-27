@@ -121,7 +121,7 @@ def fetch_owm_air_pollution_history(
 
     return [
         {
-            "datetime_ph": datetime.fromtimestamp(e["dt"], tz=timezone.utc),
+            "timestamp": datetime.fromtimestamp(e["dt"], tz=timezone.utc),
             **{p: e["components"].get(OWM_COMPONENT[p]) for p in POLLUTANTS},
         }
         for e in entries
@@ -166,17 +166,17 @@ def build_history_df(
     sensor_df = pd.DataFrame(
         [
             {
-                "datetime_ph": row.timestamp,
+                "timestamp": row.timestamp,
                 **{f"{p}_sensor": getattr(row, SENSOR_ATTR[p]) for p in POLLUTANTS},
             }
             for row in sensor_rows
         ]
-    ).sort_values("datetime_ph")
+    ).sort_values("timestamp")
 
     # Pad the OWM fetch start by 1h so the earliest sensor reading has a prior
     # hourly value to forward-fill from, even if it lands right at the window edge.
     owm_history = fetch_owm_air_pollution_history(
-        sensor_df["datetime_ph"].iloc[0] - timedelta(hours=1),
+        sensor_df["timestamp"].iloc[0] - timedelta(hours=1),
         now,
         owm_api_key,
         lat,
@@ -184,10 +184,10 @@ def build_history_df(
     )
     owm_df = pd.DataFrame(owm_history).rename(columns={p: f"{p}_api" for p in POLLUTANTS})
     if owm_df.empty:
-        owm_df = pd.DataFrame(columns=["datetime_ph"] + [f"{p}_api" for p in POLLUTANTS])
-    owm_df = owm_df.sort_values("datetime_ph")
+        owm_df = pd.DataFrame(columns=["timestamp"] + [f"{p}_api" for p in POLLUTANTS])
+    owm_df = owm_df.sort_values("timestamp").rename(columns={"datetime_ph": "timestamp"})
 
-    merged = pd.merge_asof(sensor_df, owm_df, on="datetime_ph", direction="backward")
+    merged = pd.merge_asof(sensor_df, owm_df, on="timestamp", direction="backward")
 
     return merged[HISTORY_COLUMNS]
 
@@ -216,7 +216,7 @@ def calibrate_air_quality(
     """Return a calibrated pollutant reading using a rolling bias multiplier."""
     ts = timestamp or datetime.now(timezone.utc)
 
-    current_row = {"datetime_ph": ts}
+    current_row = {"timestamp": ts}
     for p in POLLUTANTS:
         current_row[f"{p}_api"] = api_data.get(p)
         current_row[f"{p}_sensor"] = sensor_data.get(SENSOR_ATTR[p])
@@ -228,10 +228,10 @@ def calibrate_air_quality(
             [history_df, pd.DataFrame([current_row])], ignore_index=True
         )
     cutoff = ts - timedelta(hours=ROLLING_WINDOW_HOURS)
-    window_df = window_df[window_df["datetime_ph"] >= cutoff].reset_index(drop=True)
+    window_df = window_df[window_df["timestamp"] >= cutoff].reset_index(drop=True)
 
     calibrated: dict = {
-        "datetime_ph": ts.isoformat() if isinstance(ts, datetime) else ts
+        "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts
     }
 
     for p in POLLUTANTS:
