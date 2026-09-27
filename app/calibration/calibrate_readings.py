@@ -5,15 +5,15 @@ Live sources:
     - OpenWeatherMap Air Pollution API -> pm2.5, co, no2
     - Open-Meteo Forecast API          -> temperature, humidity
 
-Expected `history_df` schema (last up to 5 hourly rows, oldest -> newest):
-    timestamp, pm25_api, pm25_sensor, co_api, co_sensor, no2_api, no2_sensor
+Expected `history_df` schema (rows spanning the trailing 6-hour window, any cadence):
+    datetime_ph, pm25_api, pm25_sensor, co_api, co_sensor, no2_api, no2_sensor
 
-`sensor_data` : {"pm25": float|None, "co": float|None, "no2": float|None}
+`sensor_data` : {"pm25_ugm3": float|None, "co_ugm3": float|None, "no2_ugm3": float|None}
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import numpy as np
@@ -26,9 +26,15 @@ from app.models.sensor_readings import SensorReading  # adjust to your actual im
 from app.config import Config
 
 OWM_API_KEY = Config.OWM_API_KEY
-POLLUTANTS = ("pm2_5_ugm3", "co_ugm3", "no2_ugm3")  # keys in SensorReading and API data
+
+# Canonical internal pollutant keys — decoupled from any one source's field names,
+# so a single mapping controls how each source's naming is translated.
+POLLUTANTS = ("pm25", "co", "no2")
+SENSOR_ATTR = {"pm25": "pm25_ugm3", "co": "co_ugm3", "no2": "no2_ugm3"}  # SensorReading columns
+OWM_COMPONENT = {"pm25": "pm2_5", "co": "co", "no2": "no2"}  # OWM JSON component keys
+OUTPUT_KEY = {"pm25": "pm25_ugm3", "co": "co_ugm3", "no2": "no2_ugm3"}  # final output keys
+
 ROLLING_WINDOW_HOURS = 6
-HISTORY_HOURS = ROLLING_WINDOW_HOURS - 1  # 5 hours of history + 1 current reading
 MIN_MULTIPLIER = 0.3
 MAX_MULTIPLIER = 3.0
 
@@ -41,7 +47,7 @@ DEFAULT_LON = 123.18493
 
 REQUEST_TIMEOUT_SECONDS = 10
 
-HISTORY_COLUMNS = ["timestamp"] + [
+HISTORY_COLUMNS = ["datetime_ph"] + [
     f"{p}_{source}" for p in POLLUTANTS for source in ("api", "sensor")
 ]
 
@@ -57,11 +63,7 @@ def fetch_owm_air_pollution(
     response.raise_for_status()
     components = response.json()["list"][0]["components"]
 
-    return {
-        "pm2_5_ugm3": components.get("pm2_5"),
-        "co_ugm3": components.get("co"),
-        "no2_ugm3": components.get("no2"),
-    }
+    return {p: components.get(OWM_COMPONENT[p]) for p in POLLUTANTS}
 
 
 def fetch_open_meteo_weather(
@@ -80,8 +82,8 @@ def fetch_open_meteo_weather(
     current = response.json()["current"]
 
     return {
-        "temperature_c": current.get("temperature_2m"),
-        "humidity_pct": current.get("relative_humidity_2m"),
+        "temperature": current.get("temperature_2m"),
+        "humidity": current.get("relative_humidity_2m"),
     }
 
 
@@ -119,68 +121,75 @@ def fetch_owm_air_pollution_history(
 
     return [
         {
-            "timestamp": datetime.fromtimestamp(e["dt"], tz=timezone.utc),
-            "pm25_ugm3": e["components"].get("pm2_5"),
-            "co_ugm3": e["components"].get("co"),
-            "no2_ugm3": e["components"].get("no2"),
+            "datetime_ph": datetime.fromtimestamp(e["dt"], tz=timezone.utc),
+            **{p: e["components"].get(OWM_COMPONENT[p]) for p in POLLUTANTS},
         }
         for e in entries
     ]
 
 
 def fetch_sensor_history(
-    db: Session, station_id: int, limit: int = HISTORY_HOURS
+    db: Session, station_id: int, since: datetime
 ) -> list[SensorReading]:
-    """Fetch the last `limit` sensor readings for a station, oldest first."""
+    """Fetch all sensor readings for a station since a cutoff timestamp, oldest first."""
     stmt = (
         select(SensorReading)
         .where(SensorReading.station_id == station_id)
-        .order_by(SensorReading.timestamp.desc())
-        .limit(limit)
+        .where(SensorReading.timestamp >= since)
+        .order_by(SensorReading.timestamp.asc())
     )
-    rows = db.execute(stmt).scalars().all()
-    return list(reversed(rows))
-
-
-def _nearest_owm_entry(owm_history: list[dict], target: datetime) -> Optional[dict]:
-    if not owm_history:
-        return None
-    return min(owm_history, key=lambda e: abs((e["timestamp"] - target).total_seconds()))
+    return list(db.execute(stmt).scalars().all())
 
 
 def build_history_df(
     db: Session,
     station_id: int,
-    owm_api_key: str,
+    owm_api_key: str = OWM_API_KEY,
     lat: float = DEFAULT_LAT,
     lon: float = DEFAULT_LON,
-    hours: int = HISTORY_HOURS,
+    window_hours: int = ROLLING_WINDOW_HOURS,
+    now: Optional[datetime] = None,
 ) -> pd.DataFrame:
-    """Build the rolling-correction history DataFrame from DB sensor readings + OWM history."""
-    sensor_rows = fetch_sensor_history(db, station_id, limit=hours)
+    """Build the rolling-correction history DataFrame from DB sensor readings + OWM history.
+
+    Sensor readings arrive every 15-30 min; OWM pollutant data is hourly. Each sensor
+    reading is paired with the most recent OWM value at or before its timestamp
+    (forward-filled), via pd.merge_asof.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=window_hours)
+
+    sensor_rows = fetch_sensor_history(db, station_id, since=cutoff)
     if not sensor_rows:
         return pd.DataFrame(columns=HISTORY_COLUMNS)
 
-    owm_history = fetch_owm_air_pollution_history(
-        owm_api_key, sensor_rows[0].timestamp, sensor_rows[-1].timestamp, lat, lon
-    )
-
-    records = []
-    for row in sensor_rows:
-        api_match = _nearest_owm_entry(owm_history, row.timestamp) or {}
-        records.append(
+    sensor_df = pd.DataFrame(
+        [
             {
                 "datetime_ph": row.timestamp,
-                "pm25_api": api_match.get("pm25_ugm3"),
-                "pm25_sensor": row.pm25_ugm3,
-                "co_api": api_match.get("co_ugm3"),
-                "co_sensor": row.co_ugm3,
-                "no2_api": api_match.get("no2_ugm3"),
-                "no2_sensor": row.no2_ugm3,
+                **{f"{p}_sensor": getattr(row, SENSOR_ATTR[p]) for p in POLLUTANTS},
             }
-        )
+            for row in sensor_rows
+        ]
+    ).sort_values("datetime_ph")
 
-    return pd.DataFrame(records, columns=HISTORY_COLUMNS)
+    # Pad the OWM fetch start by 1h so the earliest sensor reading has a prior
+    # hourly value to forward-fill from, even if it lands right at the window edge.
+    owm_history = fetch_owm_air_pollution_history(
+        sensor_df["datetime_ph"].iloc[0] - timedelta(hours=1),
+        now,
+        owm_api_key,
+        lat,
+        lon,
+    )
+    owm_df = pd.DataFrame(owm_history).rename(columns={p: f"{p}_api" for p in POLLUTANTS})
+    if owm_df.empty:
+        owm_df = pd.DataFrame(columns=["datetime_ph"] + [f"{p}_api" for p in POLLUTANTS])
+    owm_df = owm_df.sort_values("datetime_ph")
+
+    merged = pd.merge_asof(sensor_df, owm_df, on="datetime_ph", direction="backward")
+
+    return merged[HISTORY_COLUMNS]
 
 
 def calibrate_air_quality_live(
@@ -194,7 +203,7 @@ def calibrate_air_quality_live(
 ) -> dict:
     """Pull live API data + DB sensor history, then apply rolling bias correction."""
     api_data = fetch_current_api_data(owm_api_key, lat, lon)
-    history_df = build_history_df(db, station_id, owm_api_key, lat, lon)
+    history_df = build_history_df(db, station_id, owm_api_key, lat, lon, now=timestamp)
     return calibrate_air_quality(api_data, sensor_data, history_df, timestamp)
 
 
@@ -210,7 +219,7 @@ def calibrate_air_quality(
     current_row = {"datetime_ph": ts}
     for p in POLLUTANTS:
         current_row[f"{p}_api"] = api_data.get(p)
-        current_row[f"{p}_sensor"] = sensor_data.get(p)
+        current_row[f"{p}_sensor"] = sensor_data.get(SENSOR_ATTR[p])
 
     if history_df is None or history_df.empty:
         window_df = pd.DataFrame([current_row])
@@ -218,7 +227,8 @@ def calibrate_air_quality(
         window_df = pd.concat(
             [history_df, pd.DataFrame([current_row])], ignore_index=True
         )
-    window_df = window_df.tail(ROLLING_WINDOW_HOURS).reset_index(drop=True)
+    cutoff = ts - timedelta(hours=ROLLING_WINDOW_HOURS)
+    window_df = window_df[window_df["datetime_ph"] >= cutoff].reset_index(drop=True)
 
     calibrated: dict = {
         "datetime_ph": ts.isoformat() if isinstance(ts, datetime) else ts
@@ -227,7 +237,7 @@ def calibrate_air_quality(
     for p in POLLUTANTS:
         multiplier = _rolling_multiplier(window_df, p)
         api_value = api_data.get(p)
-        calibrated[p] = (
+        calibrated[OUTPUT_KEY[p]] = (
             round(api_value * multiplier, 2) if api_value is not None else None
         )
 
@@ -260,16 +270,11 @@ def _rolling_multiplier(window_df: pd.DataFrame, pollutant: str) -> float:
 
 
 if __name__ == "__main__":
-    import os
-
     from app.core.database import SessionLocal  # adjust to your actual session factory
 
-    OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
     STATION_ID = 1
     sensor_now = {"pm25_ugm3": 27.5, "co_ugm3": None, "no2_ugm3": None}
 
     with SessionLocal() as db:
-        result = calibrate_air_quality_live(
-            db, STATION_ID, sensor_now, owm_api_key=OWM_API_KEY
-        )
+        result = calibrate_air_quality_live(db, STATION_ID, sensor_now)
     print(result)

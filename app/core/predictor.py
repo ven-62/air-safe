@@ -54,7 +54,7 @@ import numpy as np
 import pandas as pd
 from huggingface_hub import hf_hub_download
 
-from app.calibration.calibrate_sensors import calibrate_air_quaility_live
+from app.calibration.calibrate_readings import calibrate_air_quality_live
 # COLUMN ALIASES
 
 _COLUMN_ALIASES = {
@@ -356,7 +356,7 @@ class AirQualityPredictor:
         #     if key != "datetime_ph"
         # }
 
-        aligned = calibrate_air_quaility_live(db, station_id, normalized)
+        aligned = calibrate_air_quality_live(db, station_id, normalized)
 
         # if self.sensor_calibration is not None:
         #     # Normal calibrated deployment path.
