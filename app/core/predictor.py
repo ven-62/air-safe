@@ -322,53 +322,26 @@ class AirQualityPredictor:
 
         return self.add_reading(reading, db, station_id=station_id)
 
-    def add_reading(self, reading, db, station_id=None):
-        """
-        Add a raw/current sensor reading to the predictor.
+    def add_reading(self, reading, db, station_id):
+        normalized = self._normalize_reading(reading)  # allow None sensor values
+        ts = normalized["datetime_ph"]
 
-        The input must contain physical sensor values:
+        sensor_data = {
+            "pm25_ugm3": normalized.get("pm2_5_ugm3"),
+            "co_ugm3": normalized.get("co_ugm3"),
+            "no2_ugm3": normalized.get("no2_ugm3"),
+        }
+        cal = calibrate_air_quality_live(db, station_id, sensor_data, timestamp=ts)
 
-            pm2_5_ugm3       -> µg/m³
-            co_ugm3          -> µg/m³
-            no2_ugm3         -> µg/m³
-            temperature_c    -> °C
-            humidity_pct     -> %
-
-        Calibration is optional:
-
-        - With a calibration JSON:
-              raw sensor values -> quantile mapping -> model history
-        - Without a calibration JSON:
-              raw sensor values -> model history
-
-        This means the predictor can operate immediately after deployment,
-        before a station has a calibration file.
-
-        This method does NOT write to the database.
-        """
-
-        normalized = self._normalize_reading(reading)
-
-        # Remove timestamp before calibration.
-        # calibratable = {
-        #     key: value
-        #     for key, value in normalized.items()
-        #     if key != "datetime_ph"
-        # }
-
-        aligned = calibrate_air_quality_live(db, station_id, normalized)
-
-        # if self.sensor_calibration is not None:
-        #     # Normal calibrated deployment path.
-        #     aligned = self.sensor_calibration.transform(calibratable)
-        # else:
-        #     # No calibration available: use raw physical values directly.
-        #     aligned = dict(calibratable)
-
-        aligned["datetime_ph"] = normalized["datetime_ph"]
-
+        aligned = {
+            "pm2_5_ugm3": cal["pm25_ugm3"],
+            "co_ugm3": cal["co_ugm3"],
+            "no2_ugm3": cal["no2_ugm3"],
+            "temperature_c": cal["temperature_c"],
+            "humidity_pct": cal["humidity_pct"],
+            "datetime_ph": ts,
+        }
         self._history.append(aligned)
-
         return aligned
 
     def add_calibrated_reading(self, db_reading):
@@ -588,13 +561,10 @@ class AirQualityPredictor:
             latest["co_ugm3"],
             latest["no2_ugm3"],
             latest["temperature_c"],
-            latest["datetime_ph"],
+            latest["timestamp"],
         )
 
-        return {
-            "timestamp": str(latest["datetime_ph"]),
-            **result,
-        }
+        return result
 
     # FORECASTING
 

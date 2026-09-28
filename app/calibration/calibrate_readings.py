@@ -2,11 +2,15 @@
 Rolling Bias Correction for Air Quality Monitoring.
 
 Live sources:
-    - OpenWeatherMap Air Pollution API -> pm2.5, co, no2
-    - Open-Meteo Forecast API          -> temperature, humidity
+    - OpenWeatherMap Air Pollution API -> pm25_ugm3, co_ugm3, no2_ugm3
+    - Open-Meteo Forecast API          -> temperature_c, humidity_pct
+
+Uniform feature names used everywhere (DB, inputs, history, output):
+    pm25_ugm3, co_ugm3, no2_ugm3, temperature_c, humidity_pct, timestamp
 
 Expected `history_df` schema (rows spanning the trailing 6-hour window, any cadence):
-    datetime_ph, pm25_api, pm25_sensor, co_api, co_sensor, no2_api, no2_sensor
+    timestamp, pm25_ugm3_api, pm25_ugm3_sensor, co_ugm3_api, co_ugm3_sensor,
+    no2_ugm3_api, no2_ugm3_sensor
 
 `sensor_data` : {"pm25_ugm3": float|None, "co_ugm3": float|None, "no2_ugm3": float|None}
 """
@@ -27,12 +31,8 @@ from app.config import Config
 
 OWM_API_KEY = Config.OWM_API_KEY
 
-# Canonical internal pollutant keys — decoupled from any one source's field names,
-# so a single mapping controls how each source's naming is translated.
-POLLUTANTS = ("pm25", "co", "no2")
-SENSOR_ATTR = {"pm25": "pm25_ugm3", "co": "co_ugm3", "no2": "no2_ugm3"}  # SensorReading columns
-OWM_COMPONENT = {"pm25": "pm2_5", "co": "co", "no2": "no2"}  # OWM JSON component keys
-OUTPUT_KEY = {"pm25": "pm25_ugm3", "co": "co_ugm3", "no2": "no2_ugm3"}  # final output keys
+POLLUTANTS = ("pm25_ugm3", "co_ugm3", "no2_ugm3")
+OWM_COMPONENT = {"pm25_ugm3": "pm2_5", "co_ugm3": "co", "no2_ugm3": "no2"}
 
 ROLLING_WINDOW_HOURS = 6
 MIN_MULTIPLIER = 0.3
@@ -47,9 +47,17 @@ DEFAULT_LON = 123.18493
 
 REQUEST_TIMEOUT_SECONDS = 10
 
-HISTORY_COLUMNS = ["datetime_ph"] + [
+HISTORY_COLUMNS = ["timestamp"] + [
     f"{p}_{source}" for p in POLLUTANTS for source in ("api", "sensor")
 ]
+
+
+def _to_utc(ts: datetime) -> pd.Timestamp:
+    """Normalize any datetime (naive treated as UTC) to a tz-aware UTC Timestamp."""
+    stamp = pd.Timestamp(ts)
+    if stamp.tzinfo is None:
+        return stamp.tz_localize("UTC")
+    return stamp.tz_convert("UTC")
 
 
 def fetch_owm_air_pollution(
@@ -82,8 +90,8 @@ def fetch_open_meteo_weather(
     current = response.json()["current"]
 
     return {
-        "temperature": current.get("temperature_2m"),
-        "humidity": current.get("relative_humidity_2m"),
+        "temperature_c": current.get("temperature_2m"),
+        "humidity_pct": current.get("relative_humidity_2m"),
     }
 
 
@@ -131,7 +139,7 @@ def fetch_owm_air_pollution_history(
 def fetch_sensor_history(
     db: Session, station_id: int, since: datetime
 ) -> list[SensorReading]:
-    """Fetch all sensor readings for a station since a cutoff timestamp, oldest first."""
+    """Fetch all readings for ONE station since a cutoff, oldest first."""
     stmt = (
         select(SensorReading)
         .where(SensorReading.station_id == station_id)
@@ -150,16 +158,16 @@ def build_history_df(
     window_hours: int = ROLLING_WINDOW_HOURS,
     now: Optional[datetime] = None,
 ) -> pd.DataFrame:
-    """Build the rolling-correction history DataFrame from DB sensor readings + OWM history.
+    """Build the rolling-correction history DataFrame for one station.
 
-    Sensor readings arrive every 15-30 min; OWM pollutant data is hourly. Each sensor
-    reading is paired with the most recent OWM value at or before its timestamp
-    (forward-filled), via pd.merge_asof.
+    Sensor readings arrive every ~15 min (with second-level jitter); OWM pollutant
+    data is hourly. Each sensor reading is paired with the most recent OWM value at
+    or before its timestamp (forward-filled) via pd.merge_asof.
     """
-    now = now or datetime.now(timezone.utc)
+    now = _to_utc(now or datetime.now(timezone.utc))
     cutoff = now - timedelta(hours=window_hours)
 
-    sensor_rows = fetch_sensor_history(db, station_id, since=cutoff)
+    sensor_rows = fetch_sensor_history(db, station_id, since=cutoff.to_pydatetime())
     if not sensor_rows:
         return pd.DataFrame(columns=HISTORY_COLUMNS)
 
@@ -167,25 +175,28 @@ def build_history_df(
         [
             {
                 "timestamp": row.timestamp,
-                **{f"{p}_sensor": getattr(row, SENSOR_ATTR[p]) for p in POLLUTANTS},
+                **{f"{p}_sensor": getattr(row, p) for p in POLLUTANTS},
             }
             for row in sensor_rows
         ]
-    ).sort_values("timestamp")
+    )
+    sensor_df["timestamp"] = pd.to_datetime(sensor_df["timestamp"], utc=True)
+    sensor_df = sensor_df.sort_values("timestamp")
 
     # Pad the OWM fetch start by 1h so the earliest sensor reading has a prior
-    # hourly value to forward-fill from, even if it lands right at the window edge.
+    # hourly value to forward-fill from.
     owm_history = fetch_owm_air_pollution_history(
-        sensor_df["timestamp"].iloc[0] - timedelta(hours=1),
-        now,
+        (sensor_df["timestamp"].iloc[0] - timedelta(hours=1)).to_pydatetime(),
+        now.to_pydatetime(),
         owm_api_key,
         lat,
         lon,
     )
-    owm_df = pd.DataFrame(owm_history).rename(columns={p: f"{p}_api" for p in POLLUTANTS})
-    if owm_df.empty:
-        owm_df = pd.DataFrame(columns=["timestamp"] + [f"{p}_api" for p in POLLUTANTS])
-    owm_df = owm_df.sort_values("timestamp").rename(columns={"datetime_ph": "timestamp"})
+    owm_df = pd.DataFrame(
+        owm_history, columns=["timestamp", *POLLUTANTS]
+    ).rename(columns={p: f"{p}_api" for p in POLLUTANTS})
+    owm_df["timestamp"] = pd.to_datetime(owm_df["timestamp"], utc=True)
+    owm_df = owm_df.sort_values("timestamp")
 
     merged = pd.merge_asof(sensor_df, owm_df, on="timestamp", direction="backward")
 
@@ -213,36 +224,35 @@ def calibrate_air_quality(
     history_df: pd.DataFrame,
     timestamp: Optional[datetime] = None,
 ) -> dict:
-    """Return a calibrated pollutant reading using a rolling bias multiplier."""
-    ts = timestamp or datetime.now(timezone.utc)
+    """Return a calibrated reading using a per-pollutant rolling bias multiplier."""
+    ts = _to_utc(timestamp or datetime.now(timezone.utc))
 
     current_row = {"timestamp": ts}
     for p in POLLUTANTS:
         current_row[f"{p}_api"] = api_data.get(p)
-        current_row[f"{p}_sensor"] = sensor_data.get(SENSOR_ATTR[p])
+        current_row[f"{p}_sensor"] = sensor_data.get(p)
 
+    current_df = pd.DataFrame([current_row])
     if history_df is None or history_df.empty:
-        window_df = pd.DataFrame([current_row])
+        window_df = current_df
     else:
-        window_df = pd.concat(
-            [history_df, pd.DataFrame([current_row])], ignore_index=True
-        )
+        window_df = pd.concat([history_df, current_df], ignore_index=True)
+
+    window_df["timestamp"] = pd.to_datetime(window_df["timestamp"], utc=True)
     cutoff = ts - timedelta(hours=ROLLING_WINDOW_HOURS)
     window_df = window_df[window_df["timestamp"] >= cutoff].reset_index(drop=True)
 
-    calibrated: dict = {
-        "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts
-    }
+    calibrated: dict = {"timestamp": ts.isoformat()}
 
     for p in POLLUTANTS:
         multiplier = _rolling_multiplier(window_df, p)
         api_value = api_data.get(p)
-        calibrated[OUTPUT_KEY[p]] = (
+        calibrated[p] = (
             round(api_value * multiplier, 2) if api_value is not None else None
         )
 
-    calibrated["temperature_c"] = api_data.get("temperature")
-    calibrated["humidity_pct"] = api_data.get("humidity")
+    calibrated["temperature_c"] = api_data.get("temperature_c")
+    calibrated["humidity_pct"] = api_data.get("humidity_pct")
 
     return calibrated
 
@@ -256,9 +266,7 @@ def _rolling_multiplier(window_df: pd.DataFrame, pollutant: str) -> float:
         ratio = sensor_col / api_col
     ratio = ratio.where((api_col != 0) & api_col.notna() & sensor_col.notna())
 
-    ratio_filled = ratio.ffill()
-    valid_ratios = ratio_filled.dropna()
-
+    valid_ratios = ratio.ffill().dropna()
     if valid_ratios.empty:
         return 1.0
 
@@ -273,7 +281,7 @@ if __name__ == "__main__":
     from app.core.database import SessionLocal  # adjust to your actual session factory
 
     STATION_ID = 1
-    sensor_now = {"pm25_ugm3": 27.5, "co_ugm3": None, "no2_ugm3": None}
+    sensor_now = {"pm25_ugm3": 10.75, "co_ugm3": None, "no2_ugm3": 0.77}
 
     with SessionLocal() as db:
         result = calibrate_air_quality_live(db, STATION_ID, sensor_now)
