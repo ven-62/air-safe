@@ -179,7 +179,6 @@ class StationManager:
             if isinstance(timestamp, datetime)
             else datetime.fromisoformat(timestamp)
         )
-
         # 3. CONVERT GAS UNITS
         # co_ugm3 = co_ppm_to_ugm3(
         #     mq7_ppm,
@@ -269,8 +268,8 @@ class StationManager:
             pm25_ugm3=calibrated["pm2_5_ugm3"],
             co_ugm3=calibrated["co_ugm3"],
             no2_ugm3=calibrated["no2_ugm3"],
-            temperature_c=calibrated["temperature_c"],
-            humidity_pct=calibrated["humidity_pct"],
+            temperature_c=round(calibrated["temperature_c"], 2),
+            humidity_pct=round(calibrated["humidity_pct"], 2),
         )
 
         db.add(calibrated_reading)

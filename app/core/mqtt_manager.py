@@ -300,10 +300,9 @@ class MQTTManager:
 
         except Exception as exc:
 
-            print(
-                f"[MQTT] Failed processing station "
-                f"{station_id}: {exc}"
-            )
+            import traceback
+            tb = traceback.format_exc()
+            print(tb)
 
             db.rollback()
 
@@ -313,6 +312,7 @@ class MQTTManager:
                     "status": "error",
                     "action": "sleep",
                     "sleep_seconds": 60,
+                    "debug": tb.strip().splitlines()[-4:],
                 },
             )
 

@@ -331,14 +331,19 @@ class AirQualityPredictor:
             "co_ugm3": normalized.get("co_ugm3"),
             "no2_ugm3": normalized.get("no2_ugm3"),
         }
-        cal = calibrate_air_quality_live(db, station_id, sensor_data, timestamp=ts)
+
+        try:
+            cal = calibrate_air_quality_live(db, int(station_id), sensor_data, timestamp=ts)
+        except Exception as exc:
+            print(f"[Predictor] Calibration failed, using raw values: {exc!r}")
+            cal = dict(sensor_data)
 
         aligned = {
             "pm2_5_ugm3": cal["pm25_ugm3"],
             "co_ugm3": cal["co_ugm3"],
             "no2_ugm3": cal["no2_ugm3"],
-            "temperature_c": cal["temperature_c"],
-            "humidity_pct": cal["humidity_pct"],
+            "temperature_c": normalized["temperature_c"],  # raw sensor value
+            "humidity_pct": normalized["humidity_pct"],  # raw sensor value
             "datetime_ph": ts,
         }
         self._history.append(aligned)
@@ -396,7 +401,7 @@ class AirQualityPredictor:
 
     # RESTORE HISTORY AFTER SERVER RESTART
 
-    def restore_history(self, db_readings):
+    def restore_history(self, calibrated_rows):
         """
         Rebuild _history from SensorReading records
         retrieved from the database.
@@ -419,14 +424,16 @@ class AirQualityPredictor:
 
         self._history.clear()
 
-        for db_reading in db_readings:
+        for row in calibrated_rows:
 
-            self.add_db_reading(db_reading)
+            self.add_calibrated_reading(row)
 
     # FEATURE ENGINEERING
 
     @staticmethod
     def _time_features(dt):
+        dt = pd.Timestamp(dt).tz_convert("Asia/Manila")
+        # hour, dow, month = dt.hour, dt.dayofweek, dt.month  
 
         hour = dt.hour
         dow = dt.dayofweek
@@ -512,6 +519,7 @@ class AirQualityPredictor:
         co_ugm3,
         no2_ugm3,
         temperature_c,
+        humidity_pct,
         dt,
     ):
         """
@@ -524,6 +532,7 @@ class AirQualityPredictor:
             "co_ugm3": co_ugm3,
             "no2_ugm3": no2_ugm3,
             "temperature_c": temperature_c,
+            "humidity_pct": humidity_pct,
             **self._time_features(dt),
         }
 
@@ -561,7 +570,8 @@ class AirQualityPredictor:
             latest["co_ugm3"],
             latest["no2_ugm3"],
             latest["temperature_c"],
-            latest["timestamp"],
+            latest["humidity_pct"],
+            latest["datetime_ph"],
         )
 
         return result
@@ -638,6 +648,7 @@ class AirQualityPredictor:
             forecasted["co_ugm3"],
             forecasted["no2_ugm3"],
             forecasted["temperature_c"],
+            forecasted.get("humidity_pct", latest["humidity_pct"]),
             future_dt,
         )
 
@@ -682,4 +693,3 @@ class AirQualityPredictor:
             forecasts[f"+h{h}"] = result
 
         return forecasts
-

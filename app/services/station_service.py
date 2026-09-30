@@ -7,13 +7,13 @@ TIMEZONE = ZoneInfo("Asia/Manila")
 SAMPLE_INTERVAL_SECONDS = 5
 READING_DURATION_SECONDS = 60
 
-# Preparation starts 3 minutes before the actual 1-minute reading.
+# Preparation starts 3 minutes before the actual 90-minute reading.
 # This is enough for the MQ135 warm-up.
 PREPARATION_SECONDS = 270
 
 SAMPLING_SCHEDULE = {
     # "T5": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
-    "T7": {"sleep_minutes": 7, "hours": None, "windows": [4, 11, 18, 25, 32, 39, 46, 53]},
+    # "T7": {"sleep_minutes": 7, "hours": None, "windows": [4, 11, 18, 25, 32, 39, 46, 53]},
     # "T10": {"sleep_minutes": 10, "hours": None, "windows": [9, 24, 39, 54]},
     "S15": {"sleep_minutes": 15, "hours": [(11, 12)], "windows": [14, 34, 54]},
     "S10": {"sleep_minutes": 10, "hours": [(5, 7), (16, 18)], "windows": [9, 24, 39, 54]},
@@ -27,15 +27,15 @@ def now_local() -> datetime:
 
 
 def get_sampling_mode(dt) -> str:
-    # hour = dt.hour
-    # if 5 <= hour <= 7 or 16 <= hour <= 18:
-    #     return "S10"
-    # if 11 <= hour <= 12:
-    #     return "S15"
-    # if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
-    #     return "S25"
-    # return "S55"
-    return "T7"  # For testing, use the fastest schedule.
+    hour = dt.hour
+    if 5 <= hour <= 7 or 16 <= hour <= 18:
+        return "S10"
+    if 11 <= hour <= 12:
+        return "S15"
+    if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
+        return "S25"
+    return "S55"
+    # return "T7"  # For testing, use the fastest schedule.
 
 def get_window(date, hour, slot_minute):
     reading_start = datetime(

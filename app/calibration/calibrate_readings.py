@@ -1,12 +1,13 @@
 """
 Rolling Bias Correction for Air Quality Monitoring.
 
-Live sources:
+Live source:
     - OpenWeatherMap Air Pollution API -> pm25_ugm3, co_ugm3, no2_ugm3
-    - Open-Meteo Forecast API          -> temperature_c, humidity_pct
 
-Uniform feature names used everywhere (DB, inputs, history, output):
-    pm25_ugm3, co_ugm3, no2_ugm3, temperature_c, humidity_pct, timestamp
+Only pollutants are calibrated. Temperature and humidity are NOT handled here;
+callers should use the raw sensor values for those.
+
+Output: {"timestamp", "pm25_ugm3", "co_ugm3", "no2_ugm3"}
 
 Expected `history_df` schema (rows spanning the trailing 6-hour window, any cadence):
     timestamp, pm25_ugm3_api, pm25_ugm3_sensor, co_ugm3_api, co_ugm3_sensor,
@@ -36,10 +37,9 @@ OWM_COMPONENT = {"pm25_ugm3": "pm2_5", "co_ugm3": "co", "no2_ugm3": "no2"}
 
 ROLLING_WINDOW_HOURS = 6
 MIN_MULTIPLIER = 0.3
-MAX_MULTIPLIER = 3.0
+MAX_MULTIPLIER = 20
 
 OWM_AIR_POLLUTION_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
-OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Naga City, Bicol Region, PH — default deployment coordinates.
 DEFAULT_LAT = 13.62326
@@ -74,34 +74,11 @@ def fetch_owm_air_pollution(
     return {p: components.get(OWM_COMPONENT[p]) for p in POLLUTANTS}
 
 
-def fetch_open_meteo_weather(
-    lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON
-) -> dict:
-    """Fetch current temperature and relative humidity from Open-Meteo."""
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "current": "temperature_2m,relative_humidity_2m",
-    }
-    response = requests.get(
-        OPEN_METEO_FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS
-    )
-    response.raise_for_status()
-    current = response.json()["current"]
-
-    return {
-        "temperature_c": current.get("temperature_2m"),
-        "humidity_pct": current.get("relative_humidity_2m"),
-    }
-
-
 def fetch_current_api_data(
     owm_api_key: str = OWM_API_KEY, lat: float = DEFAULT_LAT, lon: float = DEFAULT_LON
 ) -> dict:
-    """Combine OWM pollutant data and Open-Meteo weather data into one dict."""
-    api_data = fetch_owm_air_pollution(owm_api_key, lat, lon)
-    api_data.update(fetch_open_meteo_weather(lat, lon))
-    return api_data
+    """Fetch current pollutant data from OWM."""
+    return fetch_owm_air_pollution(owm_api_key, lat, lon)
 
 
 def fetch_owm_air_pollution_history(
@@ -224,7 +201,7 @@ def calibrate_air_quality(
     history_df: pd.DataFrame,
     timestamp: Optional[datetime] = None,
 ) -> dict:
-    """Return a calibrated reading using a per-pollutant rolling bias multiplier."""
+    """Rescale each raw sensor reading into the OWM domain using a rolling bias factor."""
     ts = _to_utc(timestamp or datetime.now(timezone.utc))
 
     current_row = {"timestamp": ts}
@@ -233,11 +210,9 @@ def calibrate_air_quality(
         current_row[f"{p}_sensor"] = sensor_data.get(p)
 
     current_df = pd.DataFrame([current_row])
-    if history_df is None or history_df.empty:
-        window_df = current_df
-    else:
-        window_df = pd.concat([history_df, current_df], ignore_index=True)
-
+    window_df = current_df if history_df is None or history_df.empty else pd.concat(
+        [history_df, current_df], ignore_index=True
+    )
     window_df["timestamp"] = pd.to_datetime(window_df["timestamp"], utc=True)
     cutoff = ts - timedelta(hours=ROLLING_WINDOW_HOURS)
     window_df = window_df[window_df["timestamp"] >= cutoff].reset_index(drop=True)
@@ -245,14 +220,21 @@ def calibrate_air_quality(
     calibrated: dict = {"timestamp": ts.isoformat()}
 
     for p in POLLUTANTS:
-        multiplier = _rolling_multiplier(window_df, p)
-        api_value = api_data.get(p)
-        calibrated[p] = (
-            round(api_value * multiplier, 2) if api_value is not None else None
-        )
+        multiplier = _rolling_multiplier(window_df, p)  # mean(sensor/api), clamped
+        sensor_value = sensor_data.get(p)
 
-    calibrated["temperature_c"] = api_data.get("temperature_c")
-    calibrated["humidity_pct"] = api_data.get("humidity_pct")
+        if sensor_value is None:
+            # No live sensor reading this cycle — fall back to the last known
+            # sensor value in the window (forward-filled), else raw API.
+            sensor_col = pd.to_numeric(window_df[f"{p}_sensor"], errors="coerce")
+            last_valid = sensor_col.ffill().iloc[-1] if not sensor_col.empty else None
+            sensor_value = last_valid if pd.notna(last_valid) else None
+
+        calibrated[p] = (
+            round(sensor_value / multiplier, 2)
+            if sensor_value is not None and multiplier > 0
+            else api_data.get(p)
+        )
 
     return calibrated
 

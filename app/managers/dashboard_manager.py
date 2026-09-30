@@ -97,9 +97,9 @@ class DashboardManager:
         """
 
         latest_reading = (
-            db.query(SensorReading)
-            .filter(SensorReading.station_id == int(station_id))
-            .order_by(SensorReading.timestamp.desc())
+            db.query(CalibratedReading)
+            .filter(CalibratedReading.station_id == int(station_id))
+            .order_by(CalibratedReading.timestamp.desc())
             .first()
         )
 
@@ -255,20 +255,20 @@ class DashboardManager:
         """
 
         rows = (
-            db.query(SensorReading, AQIPrediction)
+            db.query(CalibratedReading, AQIPrediction)
             .outerjoin(
                 CalibratedReading,
                 and_(
-                    CalibratedReading.station_id == SensorReading.station_id,
-                    CalibratedReading.timestamp == SensorReading.timestamp,
+                    CalibratedReading.station_id == CalibratedReading.station_id,
+                    CalibratedReading.timestamp == CalibratedReading.timestamp,
                 ),
             )
             .outerjoin(
                 AQIPrediction,
                 AQIPrediction.source_reading_id == CalibratedReading.id,
             )
-            .filter(SensorReading.station_id == int(station_id))
-            .order_by(SensorReading.timestamp.desc())
+            .filter(CalibratedReading.station_id == int(station_id))
+            .order_by(CalibratedReading.timestamp.desc())
             .limit(limit)
             .all()
         )

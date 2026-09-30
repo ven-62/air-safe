@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import Config
 
@@ -13,6 +13,11 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 Base = declarative_base()
 
+@event.listens_for(engine, "connect")
+def set_postgresql_timezone(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("SET TIME ZONE 'Asia/Manila';")
+    cursor.close()
 
 def get_db():
     db = SessionLocal()
