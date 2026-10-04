@@ -38,6 +38,7 @@ OWM_COMPONENT = {"pm25_ugm3": "pm2_5", "co_ugm3": "co", "no2_ugm3": "no2"}
 ROLLING_WINDOW_HOURS = 6
 MIN_MULTIPLIER = 0.3
 MAX_MULTIPLIER = 20
+POOL_STATIONS = True   # True = one shared multiplier across stations
 
 OWM_AIR_POLLUTION_URL = "https://api.openweathermap.org/data/2.5/air_pollution"
 
@@ -114,21 +115,21 @@ def fetch_owm_air_pollution_history(
 
 
 def fetch_sensor_history(
-    db: Session, station_id: int, since: datetime
+    db: Session, station_id: Optional[int], since: datetime
 ) -> list[SensorReading]:
-    """Fetch all readings for ONE station since a cutoff, oldest first."""
-    stmt = (
-        select(SensorReading)
-        .where(SensorReading.station_id == station_id)
-        .where(SensorReading.timestamp >= since)
-        .order_by(SensorReading.timestamp.asc())
-    )
-    return list(db.execute(stmt).scalars().all())
+    """Fetch readings since a cutoff, oldest first.
 
+    station_id=None pools readings from ALL stations.
+    """
+    stmt = select(SensorReading).where(SensorReading.timestamp >= since)
+    if station_id is not None:
+        stmt = stmt.where(SensorReading.station_id == station_id)
+    stmt = stmt.order_by(SensorReading.timestamp.asc())
+    return list(db.execute(stmt).scalars().all())
 
 def build_history_df(
     db: Session,
-    station_id: int,
+    station_id: Optional[int],
     owm_api_key: str = OWM_API_KEY,
     lat: float = DEFAULT_LAT,
     lon: float = DEFAULT_LON,
@@ -144,7 +145,9 @@ def build_history_df(
     now = _to_utc(now or datetime.now(timezone.utc))
     cutoff = now - timedelta(hours=window_hours)
 
-    sensor_rows = fetch_sensor_history(db, station_id, since=cutoff.to_pydatetime())
+    sensor_rows = fetch_sensor_history(
+        db, None if POOL_STATIONS else station_id, since=cutoff.to_pydatetime()
+    )
     if not sensor_rows:
         return pd.DataFrame(columns=HISTORY_COLUMNS)
 
@@ -182,7 +185,7 @@ def build_history_df(
 
 def calibrate_air_quality_live(
     db: Session,
-    station_id: int,
+    station_id: Optional[int],
     sensor_data: dict,
     owm_api_key: str = OWM_API_KEY,
     lat: float = DEFAULT_LAT,
