@@ -7,12 +7,14 @@ TIMEZONE = ZoneInfo("Asia/Manila")
 SAMPLE_INTERVAL_SECONDS = 5
 READING_DURATION_SECONDS = 60
 
-# Preparation starts 3 minutes before the actual 1-minute reading.
+# Preparation starts 3 minutes before the actual 90-minute reading.
 # This is enough for the MQ135 warm-up.
-PREPARATION_SECONDS = 180
+PREPARATION_SECONDS = 270
 
 SAMPLING_SCHEDULE = {
-    "S05": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
+    # "T5": {"sleep_minutes": 5, "hours": None, "windows": [4, 9, 14, 19, 24, 29, 34, 39, 44, 49, 54]},
+    # "T7": {"sleep_minutes": 7, "hours": None, "windows": [4, 11, 18, 25, 32, 39, 46, 53]},
+    # "T10": {"sleep_minutes": 10, "hours": None, "windows": [9, 24, 39, 54]},
     "S15": {"sleep_minutes": 15, "hours": [(11, 12)], "windows": [14, 34, 54]},
     "S10": {"sleep_minutes": 10, "hours": [(5, 7), (16, 18)], "windows": [9, 24, 39, 54]},
     "S25": {"sleep_minutes": 25, "hours": [(8, 10), (13, 15), (19, 21)], "windows": [24, 54]},
@@ -25,15 +27,15 @@ def now_local() -> datetime:
 
 
 def get_sampling_mode(dt) -> str:
-    # hour = dt.hour
-    # if 5 <= hour <= 7 or 16 <= hour <= 18:
-    #     return "S10"
-    # if 11 <= hour <= 12:
-    #     return "S15"
-    # if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
-    #     return "S25"
-    # return "S55"
-    return "S05"  # For testing, use the fastest schedule.
+    hour = dt.hour
+    if 5 <= hour <= 7 or 16 <= hour <= 18:
+        return "S10"
+    if 11 <= hour <= 12:
+        return "S15"
+    if 8 <= hour <= 10 or 13 <= hour <= 15 or 19 <= hour <= 21:
+        return "S25"
+    return "S55"
+    # return "T7"  # For testing, use the fastest schedule.
 
 def get_window(date, hour, slot_minute):
     reading_start = datetime(
@@ -92,14 +94,14 @@ def prepare_response(mode, prepare_start, reading_start, reading_end):
     return {
         "status": "prepare",
         "action": "prepare",
-        "mode": mode,
-        "server_time": now.isoformat(),
-        "prepare_start": prepare_start.isoformat(),
-        "reading_start": reading_start.isoformat(),
-        "reading_end": reading_end.isoformat(),
+        # "mode": mode,
+        # "server_time": now.isoformat(),
+        # "prepare_start": prepare_start.isoformat(),
+        # "reading_start": reading_start.isoformat(),
+        # "reading_end": reading_end.isoformat(),
         "prepare_seconds": max(0, math.ceil((reading_start - now).total_seconds())),
-        "reading_duration_seconds": READING_DURATION_SECONDS,
-        "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        # "reading_duration_seconds": READING_DURATION_SECONDS,
+        # "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
     }
 
 
@@ -108,29 +110,49 @@ def active_response(mode, reading_start, reading_end):
     return {
         "status": "active",
         "action": "read",
-        "mode": mode,
-        "server_time": now.isoformat(),
-        "window_start": reading_start.isoformat(),
-        "window_end": reading_end.isoformat(),
+        # "mode": mode,
+        # "server_time": now.isoformat(),
+        # "window_start": reading_start.isoformat(),
+        # "window_end": reading_end.isoformat(),
         "remaining_seconds": max(0, math.ceil((reading_end - now).total_seconds())),
-        "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        # "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
     }
 
+
+# def sleep_response(reason="outside_window"):
+#     now = now_local()
+#     next_start = next_prepare_start(now)
+#     if next_start is None:
+#         sleep_seconds = 3600
+#     else:
+#         # Wake 70 seconds before preparation so /check occurs at preparation start.
+#         wake_time = next_start
+#         sleep_seconds = max(1, math.ceil((wake_time - now).total_seconds()))
+#     return {
+#         "status": "sleep",
+#         "action": "sleep",
+#         # "reason": reason,
+#         # "server_time": now.isoformat(),
+#         "sleep_seconds": sleep_seconds,
+#         # "next_prepare_start": next_start.isoformat() if next_start else None,
+#     }
 
 def sleep_response(reason="outside_window"):
     now = now_local()
     next_start = next_prepare_start(now)
-    if next_start is None:
-        sleep_seconds = 3600
-    else:
-        # Wake 70 seconds before preparation so /check occurs at preparation start.
-        wake_time = next_start
-        sleep_seconds = max(1, math.ceil((wake_time - now).total_seconds()))
+
+    sleep_seconds = (
+        3600
+        if next_start is None
+        else max(1, math.ceil((next_start - now).total_seconds()))
+    )
+
     return {
         "status": "sleep",
         "action": "sleep",
-        "reason": reason,
-        "server_time": now.isoformat(),
+        # "reason": reason,
         "sleep_seconds": sleep_seconds,
-        "next_prepare_start": next_start.isoformat() if next_start else None,
+        "next_prepare_start": (
+            next_start.isoformat() if next_start else None
+        ),
     }

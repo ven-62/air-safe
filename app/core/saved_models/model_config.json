@@ -4,6 +4,7 @@
     "co_ugm3",
     "no2_ugm3",
     "temperature_c",
+    "humidity_pct",
     "hour_sin",
     "hour_cos",
     "dow_sin",

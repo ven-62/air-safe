@@ -14,6 +14,15 @@ from app.services.station_service import (
 
 router = APIRouter()
 
+# @router.on_event("startup")
+# async def start_mqtt():
+#     loop = asyncio.get_running_loop()
+#     mqtt_manager.start(loop)
+
+
+# @router.on_event("shutdown")
+# async def stop_mqtt():
+#     mqtt_manager.stop()
 
 @router.post("/{station_id}/check")
 def station_check(station_id: str):

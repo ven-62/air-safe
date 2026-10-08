@@ -22,12 +22,3 @@ class SensorReading(Base):
     humidity_pct: Mapped[float | None] = mapped_column(Float)
 
     station = relationship("Station", back_populates="sensor_readings")
-
-    # The AQI predictions generated from this sensor reading
-    aqi_predictions = relationship(
-        "AQIPrediction", back_populates="source_reading", cascade="all, delete-orphan"
-    )
-    # The forecast readings generated from this sensor reading
-    forecasts = relationship(
-        "Forecast", back_populates="source_reading", cascade="all, delete-orphan"
-    )

@@ -2,11 +2,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import asyncio
 # Routers
 from app.routes.station_route import router as station_router
 from app.routes.dashboard_route import router as dashboard_router
 
+from app.core.mqtt_manager import mqtt_manager
 from app.core.database import Base, engine
 from app.core.seed import seed_stations
 import app.models
@@ -15,7 +16,13 @@ import app.models
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine) # Create database tables based on SQLAlchemy models
     seed_stations() # Seed the database with initial station data if not already present
+
+    loop = asyncio.get_running_loop()
+    mqtt_manager.start(loop)
+    
     yield
+    
+    mqtt_manager.stop()
 
 
 app = FastAPI(

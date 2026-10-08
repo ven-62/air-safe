@@ -54,8 +54,7 @@ import numpy as np
 import pandas as pd
 from huggingface_hub import hf_hub_download
 
-from app.calibration.quantile_normalizer import SensorQuantileCalibrator
-
+from app.calibration.calibrate_readings import calibrate_air_quality_live
 # COLUMN ALIASES
 
 _COLUMN_ALIASES = {
@@ -117,7 +116,6 @@ class AirQualityPredictor:
         hf_repo_id=None,
         hf_revision=None,
         hf_token=None,
-        sensor_calibration_path=None,
     ):
 
         # Model configuration
@@ -150,11 +148,14 @@ class AirQualityPredictor:
         self._history = deque(maxlen=history_size)
 
         # Fixed quantile calibration
-        self.sensor_calibration = None
-
-        if sensor_calibration_path:
-
-            self.sensor_calibration = SensorQuantileCalibrator(sensor_calibration_path)
+        # Fixed quantile calibration is optional.
+        #
+        # If a calibration file exists, sensor values are mapped into the
+        # training/API domain before prediction.
+        #
+        # If no calibration file is supplied, the predictor uses the raw
+        # physical sensor values directly. This allows the station to make
+        # predictions before calibration has been generated.
 
     # MODEL HELPERS
     def _resolve_file(self, filename):
@@ -293,7 +294,7 @@ class AirQualityPredictor:
             "timestamp": db_reading.timestamp,
         }
 
-    def add_db_reading(self, db_reading):
+    def add_db_reading(self, db_reading, db, station_id=None):
         """
         Add an already-saved SQLAlchemy SensorReading
         into the predictor.
@@ -304,9 +305,12 @@ class AirQualityPredictor:
                     ↓
             normalize/validate
                     ↓
-            quantile calibration
+            optional quantile calibration
                     ↓
             _history
+
+        If no calibration is configured, the normalized raw values are
+        placed directly into _history.
 
         This method DOES NOT write to the database.
 
@@ -314,38 +318,90 @@ class AirQualityPredictor:
         first, then call this method.
         """
 
-        if self.sensor_calibration is None:
-
-            raise ValueError("Sensor calibration is not configured.")
-
         reading = self._db_reading_to_dict(db_reading)
 
-        normalized = self._normalize_reading(reading)
+        return self.add_reading(reading, db, station_id=station_id)
 
-        # Remove timestamp before calibration
-        calibratable = {
-            key: value for key, value in normalized.items() if key != "datetime_ph"
+    def add_reading(self, reading, db, station_id):
+        normalized = self._normalize_reading(reading)  # allow None sensor values
+        ts = normalized["datetime_ph"]
+
+        sensor_data = {
+            "pm25_ugm3": normalized.get("pm2_5_ugm3"),
+            "co_ugm3": normalized.get("co_ugm3"),
+            "no2_ugm3": normalized.get("no2_ugm3"),
         }
 
-        # ----------------------------------------------
-        # Apply FIXED quantile mapping
-        # ----------------------------------------------
+        try:
+            cal = calibrate_air_quality_live(db, int(station_id), sensor_data, timestamp=ts)
+        except Exception as exc:
+            print(f"[Predictor] Calibration failed, using raw values: {exc!r}")
+            cal = dict(sensor_data)
 
-        aligned = self.sensor_calibration.transform(calibratable)
-
-        aligned["datetime_ph"] = normalized["datetime_ph"]
-
-        # ----------------------------------------------
-        # Add aligned reading to temporary history
-        # ----------------------------------------------
-
+        aligned = {
+            "pm2_5_ugm3": cal["pm25_ugm3"],
+            "co_ugm3": cal["co_ugm3"],
+            "no2_ugm3": cal["no2_ugm3"],
+            "temperature_c": normalized["temperature_c"],  # raw sensor value
+            "humidity_pct": normalized["humidity_pct"],  # raw sensor value
+            "datetime_ph": ts,
+        }
         self._history.append(aligned)
-
         return aligned
+
+    def add_calibrated_reading(self, db_reading):
+        """Load an already-calibrated CalibratedReading into history.
+
+        This is used when rebuilding predictor history from the database.
+        It intentionally does NOT apply the quantile normalizer again.
+        """
+        reading = {
+            "pm25_ugm3": db_reading.pm25_ugm3,
+            "co_ugm3": db_reading.co_ugm3,
+            "no2_ugm3": db_reading.no2_ugm3,
+            "temperature_c": db_reading.temperature_c,
+            "humidity_pct": db_reading.humidity_pct,
+            "timestamp": db_reading.timestamp,
+        }
+
+        normalized = self._normalize_reading(reading)
+        self._history.append(normalized)
+        return normalized
+
+    def predict_raw(self, reading, update_history=True):
+        """
+        Predict AQI and optionally forecast directly from raw sensor data.
+
+        This is useful when the station has no calibration file yet.
+
+        The supplied values are assumed to already be in the predictor's
+        physical units (µg/m³, °C, %).
+
+        If update_history=True, the reading is added to _history before
+        prediction. Forecasting therefore uses the new raw reading and
+        whatever previous history is available.
+        """
+
+        if update_history:
+            self.add_reading(reading)
+
+        elif len(self._history) == 0:
+            raise ValueError(
+                "Cannot predict_raw(update_history=False): "
+                "predictor history is empty."
+            )
+
+        aqi = self.predict_aqi()
+        forecast = self.predict_forecast()
+
+        return {
+            "aqi": aqi,
+            "forecast": forecast,
+        }
 
     # RESTORE HISTORY AFTER SERVER RESTART
 
-    def restore_history(self, db_readings):
+    def restore_history(self, calibrated_rows):
         """
         Rebuild _history from SensorReading records
         retrieved from the database.
@@ -368,14 +424,16 @@ class AirQualityPredictor:
 
         self._history.clear()
 
-        for db_reading in db_readings:
+        for row in calibrated_rows:
 
-            self.add_db_reading(db_reading)
+            self.add_calibrated_reading(row)
 
     # FEATURE ENGINEERING
 
     @staticmethod
     def _time_features(dt):
+        dt = pd.Timestamp(dt).tz_convert("Asia/Manila")
+        # hour, dow, month = dt.hour, dt.dayofweek, dt.month  
 
         hour = dt.hour
         dow = dt.dayofweek
@@ -461,6 +519,7 @@ class AirQualityPredictor:
         co_ugm3,
         no2_ugm3,
         temperature_c,
+        humidity_pct,
         dt,
     ):
         """
@@ -473,6 +532,7 @@ class AirQualityPredictor:
             "co_ugm3": co_ugm3,
             "no2_ugm3": no2_ugm3,
             "temperature_c": temperature_c,
+            "humidity_pct": humidity_pct,
             **self._time_features(dt),
         }
 
@@ -510,13 +570,11 @@ class AirQualityPredictor:
             latest["co_ugm3"],
             latest["no2_ugm3"],
             latest["temperature_c"],
+            latest["humidity_pct"],
             latest["datetime_ph"],
         )
 
-        return {
-            "timestamp": str(latest["datetime_ph"]),
-            **result,
-        }
+        return result
 
     # FORECASTING
 
@@ -590,6 +648,7 @@ class AirQualityPredictor:
             forecasted["co_ugm3"],
             forecasted["no2_ugm3"],
             forecasted["temperature_c"],
+            forecasted.get("humidity_pct", latest["humidity_pct"]),
             future_dt,
         )
 
@@ -634,4 +693,3 @@ class AirQualityPredictor:
             forecasts[f"+h{h}"] = result
 
         return forecasts
-

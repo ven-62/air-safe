@@ -15,10 +15,10 @@ class AQIPrediction(Base):
     # a forecast back to the exact sensor snapshot that produced it, and
     # later join predicted-vs-actual once that future timestamp arrives.
     source_reading_id: Mapped[int] = mapped_column(
-        ForeignKey("sensor_readings.id"), index=True, nullable=False
+        ForeignKey("calibrated_readings.id"), index=True, nullable=False
     )
 
     aqi: Mapped[float | None] = mapped_column(Float)
 
     # station = relationship("Station", back_populates="aqi_predictions")
-    source_reading = relationship("SensorReading", back_populates="aqi_predictions")
+    source_reading = relationship("CalibratedReading", back_populates="aqi_predictions")
