@@ -31,10 +31,17 @@ def round_up_to_next_hour(dt: datetime) -> datetime:
         08:00:00 -> 08:00:00   (already on the hour -> unchanged)
     """
 
-    if dt.minute in (58, 59, 60, 1):
+    if dt.minute in (58, 59, 60):
         return (
             dt + timedelta(hours=1)
         ).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+    elif dt.minute == 1: # if minute is 1, round down to the previous hour. e.g. 07:01:00 -> 07:00:00
+        return dt.replace(
             minute=0,
             second=0,
             microsecond=0,
