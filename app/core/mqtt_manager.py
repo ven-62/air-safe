@@ -1,9 +1,11 @@
 import asyncio
 import json
+import math
 
 import paho.mqtt.client as mqtt
 
 from app.core.database import get_db
+from app.models.stations import Station
 from app.managers.station_manager import station_manager
 from app.services.station_service import (
     now_local,
@@ -247,6 +249,7 @@ class MQTTManager:
         print(f"[READING] NO2 (MQ135)   : {data.get('mq135_ugm3')}")
         print(f"[READING] Humidity      : {data.get('humidity')}")
         print(f"[READING] Temperature   : {data.get('temperature')}")
+        print(f"[READING] Location      : {data.get('lat')}, {data.get('lon')}")
         print("=" * 60)
 
         # ---------------------------------------------------------
@@ -284,12 +287,24 @@ class MQTTManager:
             return
 
         # ---------------------------------------------------------
+        # OPTIONAL GPS LOCATION
+        # ---------------------------------------------------------
+        # lat/lon are NOT in required_fields on purpose: old firmware,
+        # and cycles before the first GPS fix, send no location and
+        # must still be accepted.
+
+        location = self._parse_location(data)
+
+        # ---------------------------------------------------------
         # DATABASE SESSION
         # ---------------------------------------------------------
 
         db = next(get_db())
 
         try:
+
+            if location is not None:
+                self.update_station_location(station_id, location, db)
 
             await station_manager.process_station_data(
                 station_id,
@@ -348,6 +363,95 @@ class MQTTManager:
             station_id,
             response,
         )
+
+    @staticmethod
+    def _parse_location(data):
+        """Return {'lat','lon','hdop','sats'} or None if absent/invalid."""
+        lat = data.get("lat")
+        lon = data.get("lon")
+
+        if lat is None or lon is None:
+            return None
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (TypeError, ValueError):
+            return None
+
+        # Reject out-of-range values and the (0, 0) "null island" default.
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return None
+        if lat == 0.0 and lon == 0.0:
+            return None
+
+        return {
+            "lat": lat,
+            "lon": lon,
+            "hdop": data.get("gps_hdop"),
+            "sats": data.get("gps_sats"),
+        }
+
+    @staticmethod
+    def _distance_m(lat1, lon1, lat2, lon2):
+        """Haversine distance in metres."""
+        r = 6371000.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dphi = p2 - p1
+        dlmb = math.radians(lon2 - lon1)
+        a = (
+            math.sin(dphi / 2) ** 2
+            + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+        )
+        return 2 * r * math.asin(math.sqrt(a))
+
+    def update_station_location(self, station_id, location, db):
+        """
+        Save the GPS position into stations.latitude / stations.longitude
+        (the same columns /monitor/stations already serves to the frontend).
+
+        Only writes when the stored position is empty or differs by more
+        than MOVE_THRESHOLD_M, so GPS jitter doesn't cause a DB write on
+        every reading. Never raises: a location problem must not stop the
+        sensor reading from being stored.
+        """
+        MOVE_THRESHOLD_M = 50.0
+
+        try:
+            station = (
+                db.query(Station)
+                .filter(Station.id == int(station_id))
+                .first()
+            )
+
+            if station is None:
+                print(f"[GPS] Unknown station {station_id}, location ignored")
+                return
+
+            if (
+                station.latitude is not None
+                and station.longitude is not None
+                and self._distance_m(
+                    station.latitude,
+                    station.longitude,
+                    location["lat"],
+                    location["lon"],
+                ) <= MOVE_THRESHOLD_M
+            ):
+                return  # same place, nothing to update
+
+            station.latitude = location["lat"]
+            station.longitude = location["lon"]
+            db.commit()
+
+            print(
+                f"[GPS] Station {station_id} location updated: "
+                f"{location['lat']}, {location['lon']}"
+            )
+
+        except Exception as exc:
+            db.rollback()
+            print(f"[GPS] Could not update station {station_id} location: {exc!r}")
 
     def publish_command(self, station_id, payload):
 
