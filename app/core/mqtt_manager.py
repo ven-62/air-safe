@@ -417,6 +417,8 @@ class MQTTManager:
         """
         MOVE_THRESHOLD_M = 50.0
 
+        from app.services.geo_service import get_location_info
+
         try:
             station = (
                 db.query(Station)
@@ -440,8 +442,13 @@ class MQTTManager:
             ):
                 return  # same place, nothing to update
 
+            location_info = get_location_info(location["lat"], location["lon"])
+
             station.latitude = location["lat"]
             station.longitude = location["lon"]
+            station.name = location_info["place_name"] or station.name
+            station.city = location_info["city"] or station.city
+        
             db.commit()
 
             print(
