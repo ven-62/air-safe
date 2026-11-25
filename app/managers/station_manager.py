@@ -59,22 +59,22 @@ def round_up_to_next_hour(dt: datetime) -> datetime:
 # works unchanged.
 # =========================================================================
 
-def _reading_to_ws_payload(sensor_reading, aqi_result: dict) -> dict:
+def _reading_to_ws_payload(calibrated_reading, aqi_result: dict) -> dict:
     """
     Build the /monitor/read/{station_id} WebSocket message for a
-    newly saved sensor reading.
+    newly saved CALIBRATED reading.
     """
 
     return {
-        "station_id": str(sensor_reading.station_id),
-        "timestamp": sensor_reading.timestamp.isoformat(),
+        "station_id": str(calibrated_reading.station_id),
+        "timestamp": calibrated_reading.timestamp.isoformat(),
         "status": aqi_result["category"],
         "components": [
-            {"name": "pm25_ugm3", "value": sensor_reading.pm25_ugm3},
-            {"name": "co_ugm3", "value": sensor_reading.co_ugm3},
-            {"name": "no2_ugm3", "value": sensor_reading.no2_ugm3},
-            {"name": "temp_c", "value": sensor_reading.temperature_c},
-            {"name": "humidity_pct", "value": sensor_reading.humidity_pct},
+            {"name": "pm25_ugm3", "value": calibrated_reading.pm25_ugm3},
+            {"name": "co_ugm3", "value": calibrated_reading.co_ugm3},
+            {"name": "no2_ugm3", "value": calibrated_reading.no2_ugm3},
+            {"name": "temp_c", "value": calibrated_reading.temperature_c},
+            {"name": "humidity_pct", "value": calibrated_reading.humidity_pct},
             {"name": "aqi", "value": aqi_result["aqi"]},
         ],
     }
@@ -384,7 +384,7 @@ class StationManager:
 
         await ws_manager.broadcast_reading(
             station_id,
-            _reading_to_ws_payload(sensor_reading, aqi_result),
+            _reading_to_ws_payload(calibrated_reading, aqi_result),
         )
 
         await ws_manager.broadcast_forecast(
